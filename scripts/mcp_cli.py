@@ -44,6 +44,7 @@ load_dotenv()
 # Configuration
 BASE_URL = os.getenv("MCP_SERVER_URL", "http://localhost:8002")
 TOKEN = os.getenv("ADMIN_BOOTSTRAP_KEY", "admin_bootstrap_key_change_me")
+DEBUG = False  # Mode debug global
 
 console = Console()
 
@@ -637,12 +638,19 @@ def list_ontologies(ctx):
 @cli.command('ask')
 @click.argument('memory_id')
 @click.argument('question')
+@click.option('--debug', '-d', is_flag=True, help='Afficher les détails de recherche')
 @click.pass_context
-def ask(ctx, memory_id, question):
+def ask(ctx, memory_id, question, debug):
     """❓ Poser une question sur une mémoire."""
     async def _ask():
         try:
             client = MCPClient(ctx.obj['url'], ctx.obj['token'])
+            
+            if debug:
+                console.print(f"\n[bold cyan]🔍 DEBUG - Question:[/bold cyan]")
+                console.print(f"   Memory: [cyan]{memory_id}[/cyan]")
+                console.print(f"   Question: [cyan]{question}[/cyan]")
+                console.print(f"   URL: [dim]{ctx.obj['url']}[/dim]")
             
             with Progress(
                 SpinnerColumn(),
@@ -655,7 +663,19 @@ def ask(ctx, memory_id, question):
                     'question': question
                 })
             
+            if debug:
+                console.print(f"\n[bold cyan]🔍 DEBUG - Résultat complet:[/bold cyan]")
+                console.print(Syntax(json.dumps(result, indent=2, ensure_ascii=False), "json"))
+            
             if result.get('status') == 'ok':
+                if debug:
+                    console.print(f"\n[bold cyan]🔍 DEBUG - Entités trouvées:[/bold cyan]")
+                    for e in result.get('entities', []):
+                        console.print(f"   • [green]{e}[/green]")
+                    
+                    console.print(f"\n[bold cyan]🔍 DEBUG - Contexte utilisé:[/bold cyan]")
+                    console.print(Panel(result.get('context_used', ''), border_style="dim"))
+                
                 console.print(Panel.fit(
                     Markdown(result.get('answer', '')),
                     title="💡 Réponse",
@@ -663,13 +683,16 @@ def ask(ctx, memory_id, question):
                 ))
                 
                 entities = result.get('entities', [])
-                if entities:
+                if entities and not debug:
                     console.print(f"\n[dim]Entités liées: {', '.join(entities[:5])}[/dim]")
             else:
                 console.print(f"[red]❌ Erreur: {result.get('message')}[/red]")
                 
         except Exception as e:
             console.print(f"[red]❌ Erreur: {e}[/red]")
+            if debug:
+                import traceback
+                console.print(f"[dim]{traceback.format_exc()}[/dim]")
     
     asyncio.run(_ask())
 
