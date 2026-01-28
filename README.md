@@ -1,236 +1,230 @@
-# Exemple : MCP HTTP/SSE Demo
+# 🧠 MCP Memory Service
 
-**Un exemple ultra-pédagogique d'utilisation du Model Context Protocol (MCP) en HTTP/SSE avec l'API LLMaaS**
+Service de mémoire persistante basé sur un graphe de connaissances pour les agents IA, implémenté avec le protocole **MCP (Model Context Protocol)**.
 
----
+## 🎯 Concept
 
-## 📚 Table des Matières
-
-1. [Introduction](#introduction)
-2. [Architecture HTTP/SSE](#architecture-httpsse)
-3. [Sécurité et Authentification](#sécurité-et-authentification)
-4. [Fichiers du projet](#fichiers-du-projet)
-5. [Fonctionnement détaillé](#fonctionnement-détaillé)
-6. [Prérequis](#prérequis)
-7. [Installation](#installation)
-8. [Utilisation](#utilisation)
-9. [Avantages de l'architecture HTTP](#avantages-de-larchitecture-http)
-10. [Dépannage](#dépannage)
-
----
-
-## Introduction
-
-Cet exemple démontre comment utiliser le **Model Context Protocol (MCP)** avec l'API LLMaaS de Cloud Temple dans une architecture **Client-Serveur Web**.
-
-Contrairement aux implémentations basiques qui lancent des sous-processus (stdio), cet exemple montre une architecture **distribuée** et **réaliste** où le serveur MCP est un **service web indépendant** et **sécurisé**.
-
-Le cas d'usage reste simple : **demander l'heure actuelle** au modèle, qui utilisera un outil MCP distant pour obtenir cette information.
-
----
-
-## Architecture HTTP/SSE
-
-Le **Model Context Protocol (MCP)** définit comment un modèle interagit avec des outils. Dans cette version HTTP/SSE :
-
-- **HTTP (Hypertext Transfer Protocol)** : Utilisé par le client pour envoyer des requêtes JSON-RPC au serveur (ex: lister les outils, exécuter un outil).
-- **SSE (Server-Sent Events)** : Utilisé par le serveur pour envoyer des notifications ou des événements au client en temps réel.
+L'approche **Graph-First** : au lieu d'utiliser du RAG vectoriel classique, ce service extrait des entités et relations structurées pour construire un graphe de connaissances interrogeable.
 
 ```
-┌─────────────────────────────────────────────────┐
-│  Client MCP (mcp_client_demo.py)                │
-│  • Se connecte via HTTP au serveur MCP          │
-│  • Envoie le header Authorization: Bearer ...   │
-│  • Discute avec l'API LLMaaS                    │
-└───────────────────────┬─────────────────────────┘
-                        │
-           Requêtes HTTP│(JSON-RPC) + Auth
-                        ▼
-┌─────────────────────────────────────────────────┐
-│  Serveur MCP (mcp_server.py)                    │
-│  • Service Web sur http://localhost:8000        │
-│  • Protégé par clé API                          │
-│  • Expose l'outil "get_current_time"            │
-└─────────────────────────────────────────────────┘
+Document → LLM Extraction → Entités + Relations → Neo4j Graph
+                                                     ↓
+Query → Graph Search → Contexte structuré → Réponse précise
 ```
 
----
+## ✨ Fonctionnalités
 
-## Sécurité et Authentification
+- **Extraction intelligente** via LLMaaS Cloud Temple (gpt-oss:120b)
+- **Stockage S3** sur Dell ECS Cloud Temple
+- **Graphe Neo4j** pour les entités et relations
+- **API MCP** via HTTP/SSE avec authentification Bearer
+- **Multi-tenant** : isolation par mémoire (namespace)
 
-Cet exemple montre comment sécuriser l'accès à un serveur MCP.
+## 🏗️ Architecture
 
-### Côté Serveur
-Le serveur est protégé par un middleware qui vérifie le header `Authorization`.
-On définit la clé au démarrage :
-```bash
-python3 mcp_server.py --auth-key ma_super_cle_secrete
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    MCP Memory Service                        │
+│                    (localhost:8002)                          │
+├─────────────────────────────────────────────────────────────┤
+│  FastMCP Server + Auth Middleware                           │
+│  ├── memory_create/delete/list/stats                        │
+│  ├── memory_ingest (S3 + LLM + Neo4j)                       │
+│  ├── memory_search (graph-first)                            │
+│  └── memory_get_context                                     │
+├─────────────────────────────────────────────────────────────┤
+│                    Services Backend                          │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
+│  │   S3 Dell   │  │  LLMaaS CT  │  │   Neo4j     │         │
+│  │    ECS      │  │ gpt-oss:120b│  │   5.x       │         │
+│  └─────────────┘  └─────────────┘  └─────────────┘         │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### Côté Client
-Le client doit fournir cette clé pour se connecter. La clé est lue depuis le fichier `.env` :
-```env
-MCP_SERVER_AUTH_KEY=ma_super_cle_secrete
-```
+## 🚀 Démarrage Rapide
 
-Si la clé ne correspond pas, le serveur rejette la connexion (403 Forbidden).
+### Prérequis
 
----
+- Docker & Docker Compose
+- Python 3.11+
+- Clés API Cloud Temple (S3 + LLMaaS)
 
-## Fichiers du projet
-
-| Fichier | Description | Rôle |
-|---------|-------------|------|
-| `mcp_server.py` | **Service Web Sécurisé** | Serveur HTTP autonome avec authentification. |
-| `mcp_client_demo.py` | **Client HTTP** | Client utilisant le SDK standard `mcp` et gérant l'auth. |
-| `docker-compose.yml` | **Déploiement Docker** | Configuration pour lancer le serveur via Docker Compose. |
-| `Dockerfile` | **Image Docker** | Définition de l'image du serveur MCP. |
-| `requirements.txt` | Dépendances | Contient `mcp`, `httpx`, `fastapi`, `uvicorn`, `python-dotenv`. |
-| `.env.example` | Configuration | Modèle pour configurer les clés API. |
-| `README.md` | Documentation | Ce fichier. |
-
----
-
-## Fonctionnement détaillé
-
-### 1. Le Serveur (`mcp_server.py`)
-
-C'est un service web basé sur **FastAPI** qui encapsule **FastMCP**.
-- Il utilise un **middleware de sécurité** pour vérifier le token Bearer.
-- Il écoute sur `0.0.0.0:8000`.
-- Il expose les endpoints MCP standards.
-
-### 2. Le Flux de Session SSE (Session ID)
-
-Un point clé pour comprendre MCP sur HTTP : **Qui donne l'ID de session ?**
-
-1.  Le Client se connecte en `GET /sse`.
-2.  Le Serveur génère un **Session ID** unique.
-3.  Le Serveur envoie un événement `endpoint` au client dans le flux SSE.
-    - Contenu : `/messages/?session_id=...`
-4.  Le Client utilise ensuite cette URL (avec le session_id) pour toutes ses requêtes `POST`.
-
-### 3. Le Client (`mcp_client_demo.py`)
-
-C'est un script asynchrone qui :
-1. Lit la configuration et la clé d'auth dans `.env`.
-2. Se connecte à `http://localhost:8000/sse` en passant le header `Authorization`.
-3. Initialise la session MCP.
-4. Récupère les outils disponibles.
-5. Orchestre la conversation avec le LLM.
-
----
-
-## Prérequis
-
-- **Python 3.8+**
-- Une **clé API LLMaaS** valide
-- Port 8000 libre
-
----
-
-## Installation
-
-### 1. Naviguer vers le répertoire
+### Configuration
 
 ```bash
-cd simple_mcp_demo/
-```
-
-### 2. Créer le fichier .env
-
-```bash
+# Copier le fichier d'exemple
 cp .env.example .env
-```
-Éditez `.env` avec votre clé API LLMaaS et définissez une clé pour le serveur MCP si vous le souhaitez.
 
-### 3. Installer les dépendances
+# Éditer avec vos clés
+nano .env
+```
+
+Variables requises :
+```bash
+# S3 Cloud Temple
+S3_ACCESS_KEY_ID=votre_access_key
+S3_SECRET_ACCESS_KEY=votre_secret_key
+
+# LLMaaS Cloud Temple
+LLMAAS_API_KEY=votre_api_key
+
+# Neo4j
+NEO4J_PASSWORD=votre_password
+
+# Auth
+ADMIN_BOOTSTRAP_KEY=votre_clé_admin
+```
+
+### Lancement
 
 ```bash
-pip install -r requirements.txt
+# Démarrer les services
+docker compose up -d
+
+# Vérifier le statut
+docker compose ps
+
+# Voir les logs
+docker compose logs mcp-memory --tail 50
 ```
+
+## 🧪 Tests
+
+```bash
+# Test de santé (connexions services)
+python scripts/test_health.py
+
+# Test workflow complet (ingestion + recherche)
+python scripts/test_memory_workflow.py --token admin_bootstrap_key_change_me
+
+# Test qualité Q/R (5 questions sur un contrat)
+python scripts/test_graph_qa.py
+```
+
+### Résultats Attendus
+
+- **test_memory_workflow.py** : 7/7 tests OK
+- **test_graph_qa.py** : 5/5 = 100% de réussite
+
+## 📚 Outils MCP Disponibles
+
+| Outil | Description |
+|-------|-------------|
+| `memory_create` | Crée une nouvelle mémoire (namespace) |
+| `memory_delete` | Supprime une mémoire |
+| `memory_list` | Liste les mémoires disponibles |
+| `memory_stats` | Statistiques (docs, entités, relations) |
+| `memory_ingest` | Ingère un document (S3 + extraction + graphe) |
+| `memory_search` | Recherche dans le graphe |
+| `memory_get_context` | Contexte complet d'une entité |
+| `admin_create_token` | Crée un token d'accès |
+| `admin_list_tokens` | Liste les tokens |
+| `admin_revoke_token` | Révoque un token |
+| `system_health` | État de santé des services |
+
+## 📁 Structure du Projet
+
+```
+graph-memory/
+├── src/mcp_memory/
+│   ├── server.py           # Serveur MCP principal
+│   ├── config.py           # Configuration centralisée
+│   ├── core/
+│   │   ├── extractor.py    # Extraction LLM
+│   │   ├── graph.py        # Service Neo4j
+│   │   ├── storage.py      # Service S3
+│   │   └── models.py       # Modèles de données
+│   └── auth/
+│       ├── middleware.py   # Auth Bearer Token
+│       └── token_manager.py
+├── scripts/
+│   ├── test_health.py
+│   ├── test_auth.py
+│   ├── test_s3.py
+│   ├── test_memory_workflow.py
+│   └── test_graph_qa.py
+├── memory-bank/            # Documentation projet
+├── DESIGN/                 # Specs techniques
+├── docker-compose.yml
+├── Dockerfile
+├── requirements.txt
+└── .env.example
+```
+
+## ⚙️ Configuration Avancée
+
+### Limite de Tokens LLM
+
+Le modèle `gpt-oss:120b` fait du "chain-of-thought reasoning" qui consomme beaucoup de tokens. Configuration recommandée :
+
+```python
+# config.py
+llmaas_max_tokens: int = 60000  # IMPORTANT
+```
+
+### Timeouts
+
+```python
+extraction_timeout_seconds: int = 120
+s3_upload_timeout_seconds: int = 60
+neo4j_query_timeout_seconds: int = 30
+```
+
+## 🔒 Sécurité
+
+- **Authentification** : Bearer Token requis pour toutes les requêtes
+- **Bootstrap** : Clé admin pour créer le premier token
+- **Isolation** : Chaque mémoire est un namespace séparé
+
+## 📈 Exemple d'Utilisation
+
+### Via Python (client MCP)
+
+```python
+from mcp.client.sse import sse_client
+from mcp import ClientSession
+import base64
+
+async def exemple():
+    headers = {"Authorization": "Bearer votre_token"}
+    
+    async with sse_client("http://localhost:8002/sse", headers=headers) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            
+            # Créer une mémoire
+            await session.call_tool("memory_create", {
+                "memory_id": "ma-memoire",
+                "name": "Ma Mémoire",
+                "description": "Test"
+            })
+            
+            # Ingérer un document
+            content = base64.b64encode(b"Contenu du document...").decode()
+            await session.call_tool("memory_ingest", {
+                "memory_id": "ma-memoire",
+                "content_base64": content,
+                "filename": "document.txt"
+            })
+            
+            # Rechercher
+            result = await session.call_tool("memory_search", {
+                "memory_id": "ma-memoire",
+                "query": "ma recherche"
+            })
+```
+
+## 🤝 Intégration
+
+Ce service est conçu pour s'intégrer avec :
+- **QuoteFlow** : Mémoire des documents juridiques
+- **Agents IA** : Contexte persistant entre sessions
+- **Applications métier** : Base de connaissances structurée
+
+## 📄 Licence
+
+Projet interne Cloud Temple.
 
 ---
 
-## Utilisation
-
-Cette architecture nécessite **deux terminaux**.
-
-### Option A : Lancement Manuel (Sans Docker)
-
-**Terminal 1 : Démarrer le Serveur**
-```bash
-python3 mcp_server.py --auth-key ma_cle_secrete
-```
-
-**Terminal 2 : Lancer le Client**
-Assurez-vous que `MCP_SERVER_AUTH_KEY=ma_cle_secrete` est bien dans votre `.env`.
-```bash
-python3 mcp_client_demo.py --debug
-```
-
-### Option B : Lancement via Docker 🐳
-
-Si vous préférez ne pas installer les dépendances serveur sur votre machine :
-
-1.  **Démarrer le serveur** :
-    ```bash
-    docker compose up -d
-    ```
-    Le serveur sera accessible sur `http://localhost:8000` avec la clé par défaut `ma_cle_docker_secrete` (modifiable dans le `docker-compose.yml`).
-
-2.  **Configurer le client** :
-    Mettez à jour votre `.env` local :
-    ```env
-    MCP_SERVER_AUTH_KEY=ma_cle_docker_secrete
-    ```
-
-3.  **Lancer le client** (depuis votre machine) :
-    ```bash
-    python3 mcp_client_demo.py --debug
-    ```
-
-4.  **Arrêter le serveur** :
-    ```bash
-    docker compose down
-    ```
-
----
-
-### Terminal 2 : Lancer le Client (Suite Option A)
-
-Assurez-vous que `MCP_SERVER_AUTH_KEY=ma_cle_secrete` est bien dans votre `.env`.
-
-```bash
-python3 mcp_client_demo.py --debug
-```
-
-*Le client va :*
-1. Lire la clé d'auth
-2. Se connecter au serveur (Auth OK)
-3. Exécuter le scénario complet
-
----
-
-## Avantages de l'architecture HTTP
-
-Pourquoi utiliser HTTP/SSE plutôt que l'approche simple (stdio) ?
-
-1.  **Indépendance** : Le serveur peut être redémarré sans couper le client.
-2.  **Sécurité** : Contrôle d'accès via token, indispensable pour une architecture distribuée.
-3.  **Partage** : Un seul serveur MCP peut servir plusieurs clients.
-4.  **Déploiement** : Le serveur peut être hébergé sur une machine différente.
-
----
-
-## Dépannage
-
-### "403 Forbidden" ou "Unauthorized"
-- Vérifiez que la clé passée avec `--auth-key` au serveur est IDENTIQUE à celle dans le `.env` du client.
-
-### "Connection refused"
-- Vérifiez que `mcp_server.py` tourne bien.
-- Vérifiez l'URL dans `.env`.
-
-### "Module not found"
-- `pip install -r requirements.txt`
+**Développé par Cloud Temple** | [Documentation technique](DESIGN/)
