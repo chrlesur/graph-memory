@@ -468,11 +468,11 @@ def document_list(ctx, memory_id):
             table = Table(title=f"📄 Documents de {memory_id} ({len(docs)})")
             table.add_column("ID", style="cyan", no_wrap=True)
             table.add_column("Fichier", style="white")
-            table.add_column("URI S3", style="dim", max_width=50)
+            table.add_column("URI S3", style="dim", max_width=60)
             table.add_column("Ingéré le", style="green")
             
             for d in docs:
-                doc_id = d.get('id', '')[:12] + '...' if len(d.get('id', '')) > 12 else d.get('id', '')
+                doc_id = d.get('id', '')  # ID complet, pas de troncature !
                 ingested = d.get('ingested_at', '')[:10] if d.get('ingested_at') else '-'
                 table.add_row(
                     doc_id,
@@ -513,10 +513,11 @@ def document_show(ctx, memory_id, document_id):
             if result.get('status') == 'ok':
                 doc = result.get('document', {})
                 console.print(Panel.fit(
+                    f"[bold]ID:[/bold] [cyan]{document_id}[/cyan]\n"
                     f"[bold]Fichier:[/bold] [cyan]{doc.get('filename', '?')}[/cyan]\n"
                     f"[bold]URI:[/bold] [dim]{doc.get('uri', '?')}[/dim]\n"
-                    f"[bold]Hash:[/bold] [dim]{doc.get('hash', '?')[:16]}...[/dim]",
-                    title=f"📄 Document {document_id[:12]}...",
+                    f"[bold]Hash:[/bold] [dim]{doc.get('hash', '?')}[/dim]",
+                    title=f"📄 Document",
                     border_style="blue"
                 ))
                 
