@@ -31,6 +31,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
+# Copie des ontologies
+COPY ONTOLOGIES/ ./ONTOLOGIES/
+
 # Copie du code source
 COPY src/ ./src/
 

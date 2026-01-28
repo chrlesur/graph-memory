@@ -121,6 +121,8 @@ class Memory(BaseModel):
     id: str = Field(..., description="Identifiant unique de la mémoire")
     name: str = Field(..., description="Nom lisible")
     description: Optional[str] = None
+    ontology: str = Field(default="default", description="Nom de l'ontologie utilisée pour l'extraction")
+    ontology_uri: Optional[str] = Field(None, description="URI S3 de l'ontologie copiée")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     owner_token: Optional[str] = Field(None, description="Token propriétaire")
 

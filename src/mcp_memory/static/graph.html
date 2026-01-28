@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🧠 MCP Memory - Visualisation du Graphe</title>
+    <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 1rem 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        
+        .header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+        
+        .header h1 span {
+            font-size: 1.8rem;
+            margin-right: 0.5rem;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .toggle-group {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            font-size: 0.85rem;
+        }
+        
+        .toggle-group input {
+            cursor: pointer;
+        }
+        
+        select, button {
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            border: none;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+        
+        select {
+            background: rgba(255,255,255,0.15);
+            color: white;
+            min-width: 200px;
+        }
+        
+        select option {
+            background: #1a1a2e;
+            color: white;
+        }
+        
+        button {
+            background: #4CAF50;
+            color: white;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        
+        button:hover {
+            background: #45a049;
+            transform: translateY(-1px);
+        }
+        
+        button:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+        
+        .main {
+            display: flex;
+            height: calc(100vh - 60px);
+        }
+        
+        .sidebar {
+            width: 300px;
+            background: #16213e;
+            padding: 1rem;
+            overflow-y: auto;
+            border-right: 1px solid #333;
+        }
+        
+        .sidebar h3 {
+            color: #667eea;
+            margin-bottom: 1rem;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .stats {
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .stats .stat {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .stats .stat:last-child {
+            border-bottom: none;
+        }
+        
+        .stats .stat-value {
+            font-weight: bold;
+            color: #4CAF50;
+        }
+        
+        .legend {
+            margin-top: 1rem;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.3rem 0;
+            font-size: 0.85rem;
+        }
+        
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+        
+        .entity-list {
+            margin-top: 1rem;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .entity-item {
+            padding: 0.5rem;
+            border-radius: 4px;
+            margin-bottom: 0.3rem;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        .entity-item:hover {
+            background: rgba(255,255,255,0.1);
+        }
+        
+        .entity-item .type {
+            font-size: 0.7rem;
+            color: #888;
+        }
+        
+        .graph-container {
+            flex: 1;
+            position: relative;
+        }
+        
+        #graph {
+            width: 100%;
+            height: 100%;
+            background: #0f0f23;
+        }
+        
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+        
+        .loading .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(255,255,255,0.1);
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .node-details {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(22, 33, 62, 0.95);
+            padding: 1rem;
+            border-radius: 8px;
+            max-width: 300px;
+            display: none;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        
+        .node-details.visible {
+            display: block;
+        }
+        
+        .node-details h4 {
+            color: #667eea;
+            margin-bottom: 0.5rem;
+        }
+        
+        .node-details .type-badge {
+            display: inline-block;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .node-details p {
+            font-size: 0.85rem;
+            color: #aaa;
+        }
+        
+        .error {
+            background: #ff5252;
+            color: white;
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 1rem;
+        }
+        
+        /* Modale de paramètres */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        
+        .modal-overlay.visible {
+            display: flex;
+        }
+        
+        .modal {
+            background: #16213e;
+            padding: 2rem;
+            border-radius: 12px;
+            min-width: 400px;
+            max-width: 500px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+        }
+        
+        .modal h2 {
+            color: #667eea;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .modal-close {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            background: none;
+            border: none;
+            color: #888;
+            font-size: 1.5rem;
+            cursor: pointer;
+        }
+        
+        .param-group {
+            margin-bottom: 1.5rem;
+        }
+        
+        .param-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+            color: #aaa;
+        }
+        
+        .param-group .param-row {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        
+        .param-group input[type="range"] {
+            flex: 1;
+            height: 6px;
+            -webkit-appearance: none;
+            background: #333;
+            border-radius: 3px;
+            outline: none;
+        }
+        
+        .param-group input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #667eea;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        
+        .param-group .param-value {
+            min-width: 60px;
+            text-align: right;
+            font-family: monospace;
+            color: #4CAF50;
+        }
+        
+        .modal-actions {
+            display: flex;
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+        
+        .modal-actions button {
+            flex: 1;
+        }
+        
+        .btn-secondary {
+            background: #555 !important;
+        }
+        
+        .btn-settings {
+            background: #667eea !important;
+            padding: 0.5rem 0.8rem !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1><span>🧠</span> MCP Memory - Visualisation du Graphe</h1>
+        <div class="controls">
+            <select id="memorySelect">
+                <option value="">-- Sélectionner une mémoire --</option>
+            </select>
+            <button id="loadBtn" disabled>Charger</button>
+            <div class="toggle-group">
+                <input type="checkbox" id="showMentions">
+                <label for="showMentions">Afficher MENTIONS</label>
+            </div>
+            <div class="toggle-group">
+                <input type="checkbox" id="showLabels">
+                <label for="showLabels">Labels arêtes</label>
+            </div>
+            <button class="btn-settings" id="settingsBtn">⚙️ Paramètres</button>
+        </div>
+    </div>
+    
+    <!-- Modale de paramètres -->
+    <div class="modal-overlay" id="settingsModal">
+        <div class="modal">
+            <h2>⚙️ Paramètres d'affichage</h2>
+            
+            <div class="param-group">
+                <label>Distance entre nœuds (springLength)</label>
+                <div class="param-row">
+                    <input type="range" id="paramSpringLength" min="100" max="800" value="400">
+                    <span class="param-value" id="valSpringLength">400</span>
+                </div>
+            </div>
+            
+            <div class="param-group">
+                <label>Force de répulsion (gravity)</label>
+                <div class="param-row">
+                    <input type="range" id="paramGravity" min="1000" max="50000" value="15000">
+                    <span class="param-value" id="valGravity">-15000</span>
+                </div>
+            </div>
+            
+            <div class="param-group">
+                <label>Taille des nœuds</label>
+                <div class="param-row">
+                    <input type="range" id="paramNodeSize" min="10" max="50" value="20">
+                    <span class="param-value" id="valNodeSize">20</span>
+                </div>
+            </div>
+            
+            <div class="param-group">
+                <label>Taille du texte</label>
+                <div class="param-row">
+                    <input type="range" id="paramFontSize" min="8" max="20" value="11">
+                    <span class="param-value" id="valFontSize">11</span>
+                </div>
+            </div>
+            
+            <div class="modal-actions">
+                <button class="btn-secondary" id="resetParams">Réinitialiser</button>
+                <button id="applyParams">Appliquer</button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="main">
+        <div class="sidebar">
+            <h3>📊 Statistiques</h3>
+            <div class="stats">
+                <div class="stat">
+                    <span>Entités</span>
+                    <span class="stat-value" id="nodeCount">-</span>
+                </div>
+                <div class="stat">
+                    <span>Relations</span>
+                    <span class="stat-value" id="edgeCount">-</span>
+                </div>
+            </div>
+            
+            <h3>🎨 Légende</h3>
+            <div class="legend" id="legend"></div>
+            
+            <h3>📋 Entités</h3>
+            <div class="entity-list" id="entityList"></div>
+        </div>
+        
+        <div class="graph-container">
+            <div id="graph"></div>
+            <div class="loading" id="loading" style="display: none;">
+                <div class="spinner"></div>
+                <p>Chargement du graphe...</p>
+            </div>
+            <div class="node-details" id="nodeDetails">
+                <h4 id="detailName">-</h4>
+                <span class="type-badge" id="detailType">-</span>
+                <p id="detailDesc">-</p>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Couleurs par type d'entité
+        const TYPE_COLORS = {
+            'Organization': '#3498db',
+            'Person': '#2ecc71',
+            'LegalRepresentative': '#27ae60',
+            'Certification': '#9b59b6',
+            'Amount': '#f1c40f',
+            'Duration': '#e67e22',
+            'SLA': '#e74c3c',
+            'Clause': '#1abc9c',
+            'ContractType': '#34495e',
+            'Other': '#95a5a6',
+            'Unknown': '#7f8c8d'
+        };
+        
+        let network = null;
+        let currentData = null;
+        
+        // Charger la liste des mémoires via API REST
+        async function loadMemories() {
+            try {
+                const response = await fetch('/api/memories');
+                const result = await response.json();
+                const select = document.getElementById('memorySelect');
+                
+                if (result.status === 'ok') {
+                    result.memories.forEach(m => {
+                        const option = document.createElement('option');
+                        option.value = m.id;
+                        option.textContent = `${m.id} - ${m.name}`;
+                        select.appendChild(option);
+                    });
+                } else {
+                    console.error('Erreur API:', result.message);
+                }
+            } catch (e) {
+                console.error('Erreur chargement mémoires:', e);
+            }
+        }
+        
+        // Charger le graphe d'une mémoire via API REST
+        async function loadGraph(memoryId) {
+            const loading = document.getElementById('loading');
+            loading.style.display = 'block';
+            
+            try {
+                const response = await fetch(`/api/graph/${encodeURIComponent(memoryId)}`);
+                const result = await response.json();
+                
+                if (result.status !== 'ok') {
+                    throw new Error(result.message);
+                }
+                
+                currentData = result;
+                renderGraph(result.nodes, result.edges);
+                updateStats(result.nodes.length, result.edges.length);
+                updateLegend(result.nodes);
+                updateEntityList(result.nodes);
+                
+                // Afficher les documents
+                updateDocumentList(result.documents || []);
+                
+            } catch (e) {
+                console.error('Erreur:', e);
+                alert('Erreur: ' + e.message);
+            } finally {
+                loading.style.display = 'none';
+            }
+        }
+        
+        // Afficher la liste des documents avec URIs S3
+        function updateDocumentList(documents) {
+            if (!documents.length) return;
+            
+            const sidebar = document.querySelector('.sidebar');
+            let docSection = document.getElementById('docSection');
+            
+            if (!docSection) {
+                docSection = document.createElement('div');
+                docSection.id = 'docSection';
+                docSection.innerHTML = '<h3>📄 Documents</h3>';
+                sidebar.appendChild(docSection);
+            }
+            
+            const list = document.createElement('div');
+            list.className = 'entity-list';
+            list.innerHTML = documents.map(d => `
+                <div class="entity-item" style="border-left: 3px solid #e74c3c">
+                    <strong>${d.filename}</strong>
+                    <div class="type" style="word-break: break-all; font-size: 0.7rem;">${d.uri}</div>
+                </div>
+            `).join('');
+            
+            docSection.innerHTML = '<h3>📄 Documents</h3>';
+            docSection.appendChild(list);
+        }
+        
+        // Rendre le graphe avec vis.js
+        function renderGraph(nodes, edges) {
+            const container = document.getElementById('graph');
+            const showMentions = document.getElementById('showMentions').checked;
+            const showLabels = document.getElementById('showLabels').checked;
+            
+            // Filtrer les nœuds documents si MENTIONS masqués
+            let filteredNodes = nodes;
+            if (!showMentions) {
+                filteredNodes = nodes.filter(n => n.node_type !== 'document');
+            }
+            
+            // Filtrer les arêtes MENTIONS si décoché
+            let filteredEdges = edges;
+            if (!showMentions) {
+                filteredEdges = edges.filter(e => e.type !== 'MENTIONS');
+            }
+            
+            // Préparer les données pour vis.js
+            const visNodes = filteredNodes.map(n => ({
+                id: n.id,
+                label: n.label.length > 20 ? n.label.substring(0, 17) + '...' : n.label,
+                title: `${n.label}\nType: ${n.type}\n${n.description || ''}`,
+                color: {
+                    background: TYPE_COLORS[n.type] || TYPE_COLORS['Unknown'],
+                    border: '#333',
+                    highlight: { background: '#fff', border: TYPE_COLORS[n.type] || '#333' }
+                },
+                font: { color: '#fff', size: 11 },
+                size: n.node_type === 'document' ? 30 : 20 + Math.min(n.mentions || 0, 10) * 2,
+                shape: n.node_type === 'document' ? 'square' : 'dot',
+                data: n
+            }));
+            
+            // Couleurs des arêtes par type
+            const EDGE_COLORS = {
+                'RELATED_TO': '#667eea',
+                'DEFINES': '#e74c3c',
+                'SIGNED_BY': '#2ecc71',
+                'MENTIONS': '#555'
+            };
+            
+            const visEdges = filteredEdges.map((e, i) => ({
+                id: i,
+                from: e.from,
+                to: e.to,
+                label: showLabels ? e.type : '',
+                title: `${e.type}\n${e.description || ''}`,
+                arrows: { to: { enabled: true, scaleFactor: 0.5 } },
+                color: { color: EDGE_COLORS[e.type] || '#555', highlight: '#fff' },
+                font: { color: '#888', size: 8, strokeWidth: 0 },
+                width: e.type === 'MENTIONS' ? 1 : 2,
+                smooth: { type: 'continuous', roundness: 0.3 }
+            }));
+            
+            const data = {
+                nodes: new vis.DataSet(visNodes),
+                edges: new vis.DataSet(visEdges)
+            };
+            
+            const options = {
+                physics: {
+                    enabled: true,
+                    barnesHut: {
+                        gravitationalConstant: -15000,
+                        centralGravity: 0.05,
+                        springLength: 400,
+                        springConstant: 0.01,
+                        damping: 0.5
+                    },
+                    stabilization: { iterations: 200 }
+                },
+                interaction: {
+                    hover: true,
+                    tooltipDelay: 100,
+                    zoomView: true,
+                    dragView: true
+                },
+                nodes: {
+                    borderWidth: 2,
+                    shadow: true
+                },
+                edges: {
+                    width: 1.5,
+                    selectionWidth: 3,
+                    shadow: false
+                },
+                layout: {
+                    improvedLayout: true
+                }
+            };
+            
+            network = new vis.Network(container, data, options);
+            
+            // Événements
+            network.on('click', function(params) {
+                if (params.nodes.length > 0) {
+                    const nodeId = params.nodes[0];
+                    const node = currentData.nodes.find(n => n.id === nodeId);
+                    showNodeDetails(node);
+                } else {
+                    hideNodeDetails();
+                }
+            });
+            
+            // Mettre à jour les stats filtrées
+            updateStats(filteredNodes.length, filteredEdges.length);
+        }
+        
+        // Afficher les détails d'un nœud
+        function showNodeDetails(node) {
+            const details = document.getElementById('nodeDetails');
+            document.getElementById('detailName').textContent = node.label;
+            
+            const typeBadge = document.getElementById('detailType');
+            typeBadge.textContent = node.type;
+            typeBadge.style.background = TYPE_COLORS[node.type] || TYPE_COLORS['Unknown'];
+            
+            document.getElementById('detailDesc').textContent = node.description || 'Aucune description';
+            details.classList.add('visible');
+        }
+        
+        function hideNodeDetails() {
+            document.getElementById('nodeDetails').classList.remove('visible');
+        }
+        
+        // Mettre à jour les stats
+        function updateStats(nodeCount, edgeCount) {
+            document.getElementById('nodeCount').textContent = nodeCount;
+            document.getElementById('edgeCount').textContent = edgeCount;
+        }
+        
+        // Mettre à jour la légende
+        function updateLegend(nodes) {
+            const types = [...new Set(nodes.map(n => n.type))];
+            const legend = document.getElementById('legend');
+            legend.innerHTML = types.map(t => `
+                <div class="legend-item">
+                    <div class="legend-color" style="background: ${TYPE_COLORS[t] || TYPE_COLORS['Unknown']}"></div>
+                    <span>${t}</span>
+                </div>
+            `).join('');
+        }
+        
+        // Mettre à jour la liste des entités
+        function updateEntityList(nodes) {
+            const list = document.getElementById('entityList');
+            const sorted = [...nodes].sort((a, b) => (b.mentions || 0) - (a.mentions || 0));
+            
+            list.innerHTML = sorted.slice(0, 50).map(n => `
+                <div class="entity-item" onclick="focusNode('${n.id}')" style="border-left: 3px solid ${TYPE_COLORS[n.type] || TYPE_COLORS['Unknown']}">
+                    ${n.label.substring(0, 30)}${n.label.length > 30 ? '...' : ''}
+                    <div class="type">${n.type}</div>
+                </div>
+            `).join('');
+        }
+        
+        // Focus sur un nœud
+        function focusNode(nodeId) {
+            if (network) {
+                network.focus(nodeId, { scale: 1.5, animation: true });
+                network.selectNodes([nodeId]);
+                const node = currentData.nodes.find(n => n.id === nodeId);
+                if (node) showNodeDetails(node);
+            }
+        }
+        
+        // Événements
+        document.getElementById('memorySelect').addEventListener('change', function() {
+            document.getElementById('loadBtn').disabled = !this.value;
+        });
+        
+        document.getElementById('loadBtn').addEventListener('click', function() {
+            const memoryId = document.getElementById('memorySelect').value;
+            if (memoryId) loadGraph(memoryId);
+        });
+        
+        // Toggles - Ré-afficher le graphe quand on change les options
+        document.getElementById('showMentions').addEventListener('change', function() {
+            if (currentData) renderGraph(currentData.nodes, currentData.edges);
+        });
+        
+        document.getElementById('showLabels').addEventListener('change', function() {
+            if (currentData) renderGraph(currentData.nodes, currentData.edges);
+        });
+        
+        // === MODALE DE PARAMÈTRES ===
+        
+        // Paramètres par défaut et actuels
+        const defaultParams = {
+            springLength: 400,
+            gravity: 15000,
+            nodeSize: 20,
+            fontSize: 11
+        };
+        let currentParams = { ...defaultParams };
+        
+        // Ouvrir/fermer la modale
+        document.getElementById('settingsBtn').addEventListener('click', () => {
+            document.getElementById('settingsModal').classList.add('visible');
+        });
+        
+        document.getElementById('settingsModal').addEventListener('click', (e) => {
+            if (e.target.classList.contains('modal-overlay')) {
+                document.getElementById('settingsModal').classList.remove('visible');
+            }
+        });
+        
+        // Mise à jour des valeurs affichées
+        document.getElementById('paramSpringLength').addEventListener('input', function() {
+            document.getElementById('valSpringLength').textContent = this.value;
+        });
+        
+        document.getElementById('paramGravity').addEventListener('input', function() {
+            document.getElementById('valGravity').textContent = '-' + this.value;
+        });
+        
+        document.getElementById('paramNodeSize').addEventListener('input', function() {
+            document.getElementById('valNodeSize').textContent = this.value;
+        });
+        
+        document.getElementById('paramFontSize').addEventListener('input', function() {
+            document.getElementById('valFontSize').textContent = this.value;
+        });
+        
+        // Réinitialiser les paramètres
+        document.getElementById('resetParams').addEventListener('click', () => {
+            document.getElementById('paramSpringLength').value = defaultParams.springLength;
+            document.getElementById('paramGravity').value = defaultParams.gravity;
+            document.getElementById('paramNodeSize').value = defaultParams.nodeSize;
+            document.getElementById('paramFontSize').value = defaultParams.fontSize;
+            
+            document.getElementById('valSpringLength').textContent = defaultParams.springLength;
+            document.getElementById('valGravity').textContent = '-' + defaultParams.gravity;
+            document.getElementById('valNodeSize').textContent = defaultParams.nodeSize;
+            document.getElementById('valFontSize').textContent = defaultParams.fontSize;
+        });
+        
+        // Appliquer les paramètres
+        document.getElementById('applyParams').addEventListener('click', () => {
+            currentParams.springLength = parseInt(document.getElementById('paramSpringLength').value);
+            currentParams.gravity = parseInt(document.getElementById('paramGravity').value);
+            currentParams.nodeSize = parseInt(document.getElementById('paramNodeSize').value);
+            currentParams.fontSize = parseInt(document.getElementById('paramFontSize').value);
+            
+            // Fermer la modale
+            document.getElementById('settingsModal').classList.remove('visible');
+            
+            // Re-render si données chargées
+            if (currentData) {
+                renderGraphWithParams(currentData.nodes, currentData.edges);
+            }
+        });
+        
+        // Fonction de rendu avec paramètres personnalisés
+        function renderGraphWithParams(nodes, edges) {
+            const container = document.getElementById('graph');
+            const showMentions = document.getElementById('showMentions').checked;
+            const showLabels = document.getElementById('showLabels').checked;
+            
+            let filteredNodes = showMentions ? nodes : nodes.filter(n => n.node_type !== 'document');
+            let filteredEdges = showMentions ? edges : edges.filter(e => e.type !== 'MENTIONS');
+            
+            const visNodes = filteredNodes.map(n => ({
+                id: n.id,
+                label: n.label.length > 20 ? n.label.substring(0, 17) + '...' : n.label,
+                title: `${n.label}\nType: ${n.type}\n${n.description || ''}`,
+                color: {
+                    background: TYPE_COLORS[n.type] || TYPE_COLORS['Unknown'],
+                    border: '#333',
+                    highlight: { background: '#fff', border: TYPE_COLORS[n.type] || '#333' }
+                },
+                font: { color: '#fff', size: currentParams.fontSize },
+                size: n.node_type === 'document' ? currentParams.nodeSize * 1.5 : currentParams.nodeSize,
+                shape: n.node_type === 'document' ? 'square' : 'dot',
+                data: n
+            }));
+            
+            const EDGE_COLORS = {
+                'RELATED_TO': '#667eea',
+                'DEFINES': '#e74c3c',
+                'SIGNED_BY': '#2ecc71',
+                'MENTIONS': '#555'
+            };
+            
+            const visEdges = filteredEdges.map((e, i) => ({
+                id: i,
+                from: e.from,
+                to: e.to,
+                label: showLabels ? e.type : '',
+                title: `${e.type}\n${e.description || ''}`,
+                arrows: { to: { enabled: true, scaleFactor: 0.5 } },
+                color: { color: EDGE_COLORS[e.type] || '#555', highlight: '#fff' },
+                font: { color: '#888', size: 8, strokeWidth: 0 },
+                width: e.type === 'MENTIONS' ? 1 : 2,
+                smooth: { type: 'continuous', roundness: 0.3 }
+            }));
+            
+            const data = {
+                nodes: new vis.DataSet(visNodes),
+                edges: new vis.DataSet(visEdges)
+            };
+            
+            const options = {
+                physics: {
+                    enabled: true,
+                    barnesHut: {
+                        gravitationalConstant: -currentParams.gravity,
+                        centralGravity: 0.05,
+                        springLength: currentParams.springLength,
+                        springConstant: 0.01,
+                        damping: 0.5
+                    },
+                    stabilization: { iterations: 200 }
+                },
+                interaction: {
+                    hover: true,
+                    tooltipDelay: 100,
+                    zoomView: true,
+                    dragView: true
+                },
+                nodes: {
+                    borderWidth: 2,
+                    shadow: true
+                },
+                edges: {
+                    width: 1.5,
+                    selectionWidth: 3,
+                    shadow: false
+                },
+                layout: {
+                    improvedLayout: true
+                }
+            };
+            
+            network = new vis.Network(container, data, options);
+            
+            network.on('click', function(params) {
+                if (params.nodes.length > 0) {
+                    const nodeId = params.nodes[0];
+                    const node = currentData.nodes.find(n => n.id === nodeId);
+                    showNodeDetails(node);
+                } else {
+                    hideNodeDetails();
+                }
+            });
+            
+            updateStats(filteredNodes.length, filteredEdges.length);
+        }
+        
+        // Initialisation
+        loadMemories();
+    </script>
+</body>
+</html>

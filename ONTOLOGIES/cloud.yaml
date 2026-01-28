@@ -1,0 +1,324 @@
+# =============================================================================
+# Ontologie Cloud Infrastructure
+# =============================================================================
+# Spécialisée pour l'extraction d'informations depuis des documents
+# liés à l'infrastructure cloud, datacenters, certifications, services cloud.
+
+name: cloud
+version: "1.0"
+description: |
+  Ontologie spécialisée pour les documents d'infrastructure cloud.
+  Optimisée pour extraire les services cloud, architectures, certifications,
+  zones de disponibilité, configurations et indicateurs de performance.
+
+# Instructions spécifiques pour le LLM
+context: |
+  Tu es un expert en infrastructure cloud et datacenter.
+  Tu dois identifier avec précision :
+  - Les services cloud (IaaS, PaaS, SaaS) et leurs caractéristiques
+  - Les certifications de sécurité (SecNumCloud, ISO 27001, HDS, etc.)
+  - Les zones de disponibilité et régions
+  - Les configurations techniques (CPU, RAM, stockage)
+  - Les indicateurs de performance et SLA
+  - Les technologies utilisées (hyperviseurs, orchestrateurs, etc.)
+  - Les aspects de sécurité et conformité
+  
+  IMPORTANT: Sois précis sur les spécifications techniques et les certifications.
+
+# =============================================================================
+# Types d'entités spécifiques au domaine Cloud
+# =============================================================================
+entity_types:
+  # Services Cloud
+  - name: CloudService
+    description: Service cloud (IaaS, PaaS, SaaS)
+    examples:
+      - "Infrastructure IaaS SecNumCloud"
+      - "Kubernetes as a Service"
+      - "Object Storage S3"
+      - "Database as a Service"
+
+  - name: ServiceTier
+    description: Niveau de service, offre
+    examples:
+      - "Offre Standard"
+      - "Offre Premium"
+      - "Compute Standard"
+      - "Storage Performance"
+
+  # Infrastructure
+  - name: Datacenter
+    description: Centre de données, site d'hébergement
+    examples:
+      - "DC Paris (PAR1)"
+      - "Datacenter Equinix PA3"
+      - "Site de Nanterre"
+
+  - name: AvailabilityZone
+    description: Zone de disponibilité
+    examples:
+      - "AZ-FR1"
+      - "Zone A"
+      - "Region eu-west-3"
+
+  - name: Region
+    description: Région géographique cloud
+    examples:
+      - "France (FR1)"
+      - "Europe de l'Ouest"
+      - "Region Paris"
+
+  # Technologies
+  - name: Technology
+    description: Technologie, produit technique
+    examples:
+      - "VMware vSphere 8"
+      - "Kubernetes 1.28"
+      - "NetApp ONTAP"
+      - "Cisco ACI"
+
+  - name: Hypervisor
+    description: Hyperviseur, plateforme de virtualisation
+    examples:
+      - "VMware ESXi 8.0"
+      - "KVM/QEMU"
+      - "Microsoft Hyper-V"
+
+  - name: Orchestrator
+    description: Orchestrateur de conteneurs/services
+    examples:
+      - "Kubernetes"
+      - "OpenShift 4.14"
+      - "Docker Swarm"
+
+  - name: NetworkComponent
+    description: Composant réseau
+    examples:
+      - "Load Balancer F5"
+      - "Firewall Fortinet"
+      - "VPN IPSec"
+      - "SD-WAN"
+
+  # Spécifications
+  - name: ComputeSpec
+    description: Spécification de calcul (CPU, RAM)
+    examples:
+      - "8 vCPU"
+      - "32 Go RAM"
+      - "vCPU Intel Xeon"
+      - "Instance m5.xlarge"
+
+  - name: StorageSpec
+    description: Spécification de stockage
+    examples:
+      - "1 To SSD NVMe"
+      - "Block Storage"
+      - "Object Storage"
+      - "IOPS 10000"
+
+  - name: NetworkSpec
+    description: Spécification réseau
+    examples:
+      - "Bande passante 10 Gbps"
+      - "Latence < 5ms"
+      - "IP publique"
+      - "VLAN dédié"
+
+  # Certifications et Sécurité
+  - name: Certification
+    description: Certification cloud/sécurité
+    priority: high
+    examples:
+      - "SecNumCloud 3.2"
+      - "ISO 27001:2022"
+      - "HDS"
+      - "SOC 2 Type II"
+      - "PCI DSS"
+
+  - name: SecurityFeature
+    description: Fonctionnalité de sécurité
+    examples:
+      - "Chiffrement AES-256"
+      - "MFA obligatoire"
+      - "HSM (Hardware Security Module)"
+      - "Backup chiffré"
+
+  - name: ComplianceFramework
+    description: Cadre de conformité
+    examples:
+      - "RGPD"
+      - "DORA"
+      - "NIS2"
+      - "ANSSI PAMS"
+
+  # Performance et SLA
+  - name: SLA
+    description: Engagement de niveau de service
+    priority: high
+    examples:
+      - "Disponibilité 99.99%"
+      - "GTI 15 minutes"
+      - "GTR 4 heures"
+      - "RPO 1 heure"
+      - "RTO 4 heures"
+
+  - name: PerformanceMetric
+    description: Métrique de performance
+    examples:
+      - "Latence P99 < 10ms"
+      - "Throughput 1 Gbps"
+      - "IOPS 50000"
+
+  # Organisations
+  - name: CloudProvider
+    description: Fournisseur de services cloud
+    examples:
+      - "Cloud Temple"
+      - "AWS"
+      - "Microsoft Azure"
+      - "OVHcloud"
+
+  - name: Organization
+    description: Organisation cliente ou partenaire
+    examples:
+      - "ANSSI"
+      - "CNIL"
+      - "Ministère de la Santé"
+
+  # API et Interfaces
+  - name: API
+    description: Interface de programmation
+    examples:
+      - "API REST v2"
+      - "Console Shiva"
+      - "API OpenStack"
+      - "Terraform Provider"
+
+# =============================================================================
+# Types de relations spécifiques au domaine Cloud
+# =============================================================================
+relation_types:
+  - name: PROVIDES
+    description: Un fournisseur propose un service
+    examples:
+      - "Cloud Temple → PROVIDES → IaaS SecNumCloud"
+
+  - name: LOCATED_IN
+    description: Situé dans une zone/région
+    examples:
+      - "Service → LOCATED_IN → DC Paris"
+      - "Données → LOCATED_IN → France"
+
+  - name: USES_TECHNOLOGY
+    description: Utilise une technologie
+    examples:
+      - "IaaS → USES_TECHNOLOGY → VMware vSphere"
+
+  - name: CERTIFIED_FOR
+    description: Certifié pour une norme
+    examples:
+      - "Cloud Temple → CERTIFIED_FOR → SecNumCloud"
+      - "Service HDS → CERTIFIED_FOR → Hébergement Données Santé"
+
+  - name: HAS_SLA
+    description: Possède un engagement de niveau de service
+    examples:
+      - "IaaS Standard → HAS_SLA → Disponibilité 99.95%"
+
+  - name: REQUIRES
+    description: Nécessite un composant/prérequis
+    examples:
+      - "Kubernetes → REQUIRES → Load Balancer"
+
+  - name: INCLUDES
+    description: Inclut un composant
+    examples:
+      - "Offre Premium → INCLUDES → Backup automatique"
+
+  - name: CONNECTS_TO
+    description: Connexion réseau
+    examples:
+      - "VPC Client → CONNECTS_TO → Internet Gateway"
+
+  - name: REPLICATED_TO
+    description: Réplication vers une autre zone
+    examples:
+      - "Stockage → REPLICATED_TO → AZ-FR2"
+
+  - name: COMPLIANT_WITH
+    description: Conforme à un cadre réglementaire
+    examples:
+      - "Service → COMPLIANT_WITH → RGPD"
+
+  - name: HAS_SPEC
+    description: Possède une spécification
+    examples:
+      - "VM Large → HAS_SPEC → 16 vCPU, 64 Go RAM"
+
+  - name: MANAGED_BY
+    description: Géré par un composant/outil
+    examples:
+      - "Cluster → MANAGED_BY → Console Shiva"
+
+  - name: BACKUP_TO
+    description: Sauvegardé vers
+    examples:
+      - "Données → BACKUP_TO → Object Storage"
+
+  - name: INTEGRATED_WITH
+    description: Intégré avec
+    examples:
+      - "Kubernetes → INTEGRATED_WITH → Prometheus"
+
+# =============================================================================
+# Règles d'extraction spécifiques
+# =============================================================================
+extraction_rules:
+  max_entities: 50
+  max_relations: 60
+  include_metrics: true
+  include_durations: true
+  include_amounts: true
+  extract_implicit_relations: true
+  
+  priority_entities:
+    - CloudService
+    - Certification
+    - SLA
+    - Datacenter
+    - Technology
+    - SecurityFeature
+
+  special_instructions: |
+    - Identifie TOUTES les certifications mentionnées avec leur version si disponible
+    - Extrais les SLA avec leurs valeurs exactes (%, heures, minutes)
+    - Identifie les technologies et leurs versions
+    - Note les spécifications techniques (CPU, RAM, stockage, réseau)
+    - Identifie les zones de disponibilité et régions
+    - Distingue les services IaaS, PaaS, SaaS
+
+# =============================================================================
+# Exemples d'extraction
+# =============================================================================
+examples:
+  - input: |
+      Cloud Temple propose une infrastructure IaaS qualifiée SecNumCloud 3.2
+      hébergée dans ses datacenters français (Paris et Lyon).
+      L'offre Compute Standard inclut VMware vSphere 8 avec un SLA de 99.95%.
+      Le stockage Block Storage offre 50000 IOPS avec réplication synchrone.
+    expected_entities:
+      - {name: "Cloud Temple", type: "CloudProvider"}
+      - {name: "IaaS SecNumCloud", type: "CloudService"}
+      - {name: "SecNumCloud 3.2", type: "Certification"}
+      - {name: "DC Paris", type: "Datacenter"}
+      - {name: "DC Lyon", type: "Datacenter"}
+      - {name: "Compute Standard", type: "ServiceTier"}
+      - {name: "VMware vSphere 8", type: "Technology"}
+      - {name: "Disponibilité 99.95%", type: "SLA"}
+      - {name: "Block Storage", type: "CloudService"}
+      - {name: "50000 IOPS", type: "PerformanceMetric"}
+    expected_relations:
+      - {from: "Cloud Temple", to: "IaaS SecNumCloud", type: "PROVIDES"}
+      - {from: "Cloud Temple", to: "SecNumCloud 3.2", type: "CERTIFIED_FOR"}
+      - {from: "Compute Standard", to: "VMware vSphere 8", type: "USES_TECHNOLOGY"}
+      - {from: "Compute Standard", to: "Disponibilité 99.95%", type: "HAS_SLA"}

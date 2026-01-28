@@ -19,6 +19,7 @@ from .models import (
     ExtractionResult, ExtractedEntity, ExtractedRelation,
     EntityType, RelationType
 )
+from .ontology import Ontology, get_ontology_manager
 
 
 # Prompt d'extraction structuré - Version améliorée avec métriques et durées
@@ -271,6 +272,80 @@ class ExtractorService:
         }
         return type_map.get(type_str.lower(), RelationType.RELATED_TO)
     
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        reraise=True
+    )
+    async def extract_with_ontology(
+        self,
+        text: str,
+        ontology_name: str = "default",
+        max_text_length: int = 50000
+    ) -> ExtractionResult:
+        """
+        Extrait les entités et relations d'un texte en utilisant une ontologie.
+        
+        Args:
+            text: Texte à analyser
+            ontology_name: Nom de l'ontologie à utiliser (ex: "legal", "cloud")
+            max_text_length: Longueur max du texte (tronqué sinon)
+            
+        Returns:
+            ExtractionResult avec entités, relations, résumé
+        """
+        # Charger l'ontologie
+        ontology_manager = get_ontology_manager()
+        ontology = ontology_manager.get_ontology(ontology_name)
+        
+        if not ontology:
+            print(f"⚠️ [Extractor] Ontologie '{ontology_name}' non trouvée, utilisation de 'default'", file=sys.stderr)
+            ontology = ontology_manager.get_default_ontology()
+        
+        # Tronquer si nécessaire
+        if len(text) > max_text_length:
+            text = text[:max_text_length] + "\n\n[Document tronqué...]"
+        
+        # Construire le prompt avec l'ontologie
+        prompt = ontology.build_prompt(text)
+        
+        try:
+            print(f"🔍 [Extractor] Extraction avec ontologie '{ontology.name}' ({len(text)} chars)...", file=sys.stderr)
+            
+            response = await self._client.chat.completions.create(
+                model=self._model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "Tu es un assistant spécialisé dans l'extraction d'information structurée. Tu réponds uniquement en JSON valide."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                max_tokens=self._max_tokens,
+                temperature=self._temperature
+            )
+            
+            content = response.choices[0].message.content
+            if content is None:
+                print(f"⚠️ [Extractor] Réponse LLM vide", file=sys.stderr)
+                return ExtractionResult()
+            
+            result = self._parse_extraction(content)
+            
+            print(f"✅ [Extractor] Extrait ({ontology.name}): {len(result.entities)} entités, {len(result.relations)} relations", file=sys.stderr)
+            
+            return result
+            
+        except APITimeoutError:
+            print(f"⏰ [Extractor] Timeout - le document est peut-être trop long", file=sys.stderr)
+            raise
+        except APIError as e:
+            print(f"❌ [Extractor] Erreur API: {e}", file=sys.stderr)
+            raise
+
     async def test_connection(self) -> dict:
         """Teste la connexion au LLMaaS."""
         try:

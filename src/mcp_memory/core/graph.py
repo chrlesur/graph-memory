@@ -118,12 +118,15 @@ class GraphService:
         memory_id: str,
         name: str,
         description: Optional[str] = None,
+        ontology: str = "default",
+        ontology_uri: Optional[str] = None,
         owner_token: Optional[str] = None
     ) -> Memory:
         """
         Crée une nouvelle mémoire (namespace).
         
         Crée un nœud :Memory pour tracker les métadonnées.
+        L'ontologie est stockée sur S3, son URI est sauvegardée.
         """
         ns = self._ns(memory_id)
         
@@ -138,13 +141,15 @@ class GraphService:
             if existing:
                 raise ValueError(f"La mémoire '{memory_id}' existe déjà")
             
-            # Créer la mémoire
+            # Créer la mémoire avec l'URI de l'ontologie
             result = await session.run(
                 """
                 CREATE (m:Memory {
                     id: $id,
                     name: $name,
                     description: $description,
+                    ontology: $ontology,
+                    ontology_uri: $ontology_uri,
                     namespace: $namespace,
                     owner_token_hash: $owner_token,
                     created_at: datetime()
@@ -154,6 +159,8 @@ class GraphService:
                 id=memory_id,
                 name=name,
                 description=description,
+                ontology=ontology,
+                ontology_uri=ontology_uri,
                 namespace=ns,
                 owner_token=owner_token
             )
@@ -161,12 +168,14 @@ class GraphService:
             record = await result.single()
             node = record["m"]
             
-            print(f"🧠 [Graph] Mémoire créée: {memory_id} (ns: {ns})", file=sys.stderr)
+            print(f"🧠 [Graph] Mémoire créée: {memory_id} (ns: {ns}, ontology: {ontology}, uri: {ontology_uri})", file=sys.stderr)
             
             return Memory(
                 id=memory_id,
                 name=name,
                 description=description,
+                ontology=ontology,
+                ontology_uri=ontology_uri,
                 created_at=node["created_at"].to_native() if node.get("created_at") else datetime.utcnow(),
                 owner_token=owner_token
             )
@@ -188,6 +197,7 @@ class GraphService:
                 id=node["id"],
                 name=node["name"],
                 description=node.get("description"),
+                ontology=node.get("ontology", "default"),
                 created_at=node["created_at"].to_native() if node.get("created_at") else datetime.utcnow()
             )
     
@@ -244,6 +254,8 @@ class GraphService:
                     id=node["id"],
                     name=node["name"],
                     description=node.get("description"),
+                    ontology=node.get("ontology", "default"),
+                    ontology_uri=node.get("ontology_uri"),
                     created_at=node["created_at"].to_native() if node.get("created_at") else datetime.utcnow()
                 ))
             
@@ -338,9 +350,45 @@ class GraphService:
                 )
             )
     
-    async def delete_document(self, memory_id: str, doc_id: str) -> bool:
-        """Supprime un document et ses relations."""
+    async def get_document(self, memory_id: str, doc_id: str) -> Optional[Dict[str, Any]]:
+        """Récupère les informations d'un document."""
         async with self.session() as session:
+            result = await session.run(
+                """
+                MATCH (d:Document {id: $doc_id, memory_id: $memory_id})
+                RETURN d.id as id, d.filename as filename, d.uri as uri, 
+                       d.hash as hash, d.ingested_at as ingested_at
+                """,
+                doc_id=doc_id,
+                memory_id=memory_id
+            )
+            record = await result.single()
+            if record:
+                return {
+                    "id": record["id"],
+                    "filename": record["filename"],
+                    "uri": record["uri"],
+                    "hash": record["hash"],
+                    "ingested_at": record["ingested_at"]
+                }
+            return None
+
+    async def delete_document(self, memory_id: str, doc_id: str) -> Dict[str, Any]:
+        """Supprime un document et ses relations MENTIONS."""
+        async with self.session() as session:
+            # D'abord compter les relations MENTIONS qui vont être supprimées
+            count_result = await session.run(
+                """
+                MATCH (d:Document {id: $doc_id, memory_id: $memory_id})-[r:MENTIONS]-()
+                RETURN count(r) as relations
+                """,
+                doc_id=doc_id,
+                memory_id=memory_id
+            )
+            count_record = await count_result.single()
+            relations_count = count_record["relations"] if count_record else 0
+            
+            # Puis supprimer le document et ses relations
             result = await session.run(
                 """
                 MATCH (d:Document {id: $doc_id, memory_id: $memory_id})
@@ -350,9 +398,14 @@ class GraphService:
                 doc_id=doc_id,
                 memory_id=memory_id
             )
-            
+
             record = await result.single()
-            return record["deleted"] > 0 if record else False
+            deleted = record["deleted"] > 0 if record else False
+            
+            return {
+                "deleted": deleted,
+                "relations_deleted": relations_count if deleted else 0
+            }
     
     # =========================================================================
     # Gestion des Entités et Relations
@@ -444,10 +497,12 @@ class GraphService:
         limit: int = 10
     ) -> List[Dict[str, Any]]:
         """
-        Recherche des entités par nom (fuzzy matching).
+        Recherche des entités par nom, description et TYPE (fuzzy matching).
         
         Tokenise la requête pour des résultats plus pertinents.
+        Recherche aussi par type d'entité pour les requêtes comme "certifications".
         Ex: "Cloud Temple" trouvera "Cloud Temple SAS", "Contrat Cloud Temple", etc.
+        Ex: "certification" trouvera toutes les entités de type Certification
         """
         # Tokeniser la requête (mots individuels)
         tokens = [t.strip() for t in search_query.lower().split() if len(t.strip()) > 2]
@@ -456,13 +511,14 @@ class GraphService:
             return []
         
         async with self.session() as session:
-            # Recherche avec TOUS les tokens (AND)
+            # Recherche avec TOUS les tokens (AND) - inclut maintenant le TYPE
             result = await session.run(
                 """
                 MATCH (e:Entity {memory_id: $memory_id})
                 WHERE ALL(token IN $tokens WHERE 
                     toLower(e.name) CONTAINS token 
                     OR toLower(e.description) CONTAINS token
+                    OR toLower(e.type) CONTAINS token
                 )
                 RETURN e.name as name, e.type as type, e.description as description,
                        e.mention_count as mentions
@@ -484,13 +540,14 @@ class GraphService:
                 })
             
             # Si aucun résultat avec AND, réessayer avec OR (plus permissif)
-            if not entities and len(tokens) > 1:
+            if not entities:
                 result = await session.run(
                     """
                     MATCH (e:Entity {memory_id: $memory_id})
                     WHERE ANY(token IN $tokens WHERE 
                         toLower(e.name) CONTAINS token 
                         OR toLower(e.description) CONTAINS token
+                        OR toLower(e.type) CONTAINS token
                     )
                     RETURN e.name as name, e.type as type, e.description as description,
                            e.mention_count as mentions
@@ -599,6 +656,135 @@ class GraphService:
                 related_entities=related_entities,
                 relations=relations
             )
+    
+    # =========================================================================
+    # Export du Graphe Complet
+    # =========================================================================
+    
+    async def get_full_graph(self, memory_id: str) -> Dict[str, Any]:
+        """
+        Récupère le graphe complet d'une mémoire (entités + relations + documents).
+        
+        Retourne un format adapté à la visualisation :
+        - nodes: Liste des entités avec id, name, type, description
+        - edges: Liste des relations avec source, target, type, label
+        - documents: Liste des documents avec id, filename, uri S3
+        
+        Compatible avec les libraries de visualisation (vis.js, D3.js, etc.)
+        """
+        async with self.session() as session:
+            # Récupérer toutes les entités
+            nodes_result = await session.run(
+                """
+                MATCH (e:Entity {memory_id: $memory_id})
+                RETURN e.name as id, e.name as label, e.type as type, 
+                       e.description as description, e.mention_count as mentions
+                ORDER BY e.mention_count DESC
+                """,
+                memory_id=memory_id
+            )
+            
+            nodes = []
+            node_ids = set()
+            async for record in nodes_result:
+                node_id = record["id"]
+                nodes.append({
+                    "id": node_id,
+                    "label": record["label"],
+                    "type": record["type"] or "Unknown",
+                    "description": record["description"] or "",
+                    "mentions": record["mentions"] or 1,
+                    "node_type": "entity"
+                })
+                node_ids.add(node_id)
+            
+            # Récupérer tous les documents avec leur URI S3
+            docs_result = await session.run(
+                """
+                MATCH (d:Document {memory_id: $memory_id})
+                RETURN d.id as id, d.filename as filename, d.uri as uri, 
+                       d.hash as hash, d.ingested_at as ingested_at
+                ORDER BY d.ingested_at DESC
+                """,
+                memory_id=memory_id
+            )
+            
+            documents = []
+            doc_ids = set()
+            async for record in docs_result:
+                doc_id = f"doc:{record['id']}"
+                documents.append({
+                    "id": record["id"],
+                    "filename": record["filename"],
+                    "uri": record["uri"],  # URI S3 pour récupérer le fichier
+                    "hash": record["hash"],
+                    "ingested_at": record["ingested_at"].isoformat() if record["ingested_at"] else None
+                })
+                # Ajouter les documents comme nœuds aussi (pour visualisation)
+                nodes.append({
+                    "id": doc_id,
+                    "label": f"📄 {record['filename']}",
+                    "type": "Document",
+                    "description": f"URI: {record['uri']}",
+                    "mentions": 0,
+                    "node_type": "document",
+                    "uri": record["uri"],
+                    "filename": record["filename"]
+                })
+                node_ids.add(doc_id)
+                doc_ids.add(record["id"])
+            
+            # Récupérer les relations entité-entité
+            edges_result = await session.run(
+                """
+                MATCH (from:Entity {memory_id: $memory_id})-[r:RELATED_TO]->(to:Entity {memory_id: $memory_id})
+                RETURN from.name as source, to.name as target, 
+                       r.type as type, r.description as description, r.weight as weight
+                """,
+                memory_id=memory_id
+            )
+            
+            edges = []
+            async for record in edges_result:
+                source = record["source"]
+                target = record["target"]
+                if source in node_ids and target in node_ids:
+                    edges.append({
+                        "from": source,
+                        "to": target,
+                        "type": record["type"] or "RELATED_TO",
+                        "label": record["type"] or "",
+                        "description": record["description"] or "",
+                        "weight": record["weight"] or 1.0
+                    })
+            
+            # Récupérer les relations document-entité (MENTIONS)
+            mentions_result = await session.run(
+                """
+                MATCH (d:Document {memory_id: $memory_id})-[r:MENTIONS]->(e:Entity {memory_id: $memory_id})
+                RETURN d.id as doc_id, e.name as entity_name, r.count as count
+                """,
+                memory_id=memory_id
+            )
+            
+            async for record in mentions_result:
+                doc_id = f"doc:{record['doc_id']}"
+                entity_name = record["entity_name"]
+                if doc_id in node_ids and entity_name in node_ids:
+                    edges.append({
+                        "from": doc_id,
+                        "to": entity_name,
+                        "type": "MENTIONS",
+                        "label": "mentions",
+                        "description": f"Mentioned {record['count']} times",
+                        "weight": record["count"] or 1
+                    })
+            
+            return {
+                "nodes": nodes,
+                "edges": edges,
+                "documents": documents  # Liste séparée avec URIs S3
+            }
     
     # =========================================================================
     # Statistiques

@@ -22,7 +22,7 @@ load_dotenv()
 from mcp.server.fastmcp import FastMCP
 
 from .config import get_settings
-from .auth.middleware import AuthMiddleware, LoggingMiddleware
+from .auth.middleware import AuthMiddleware, LoggingMiddleware, StaticFilesMiddleware
 
 
 # =============================================================================
@@ -91,30 +91,66 @@ def get_tokens():
 async def memory_create(
     memory_id: str,
     name: str,
-    description: Optional[str] = None
+    description: Optional[str] = None,
+    ontology: str = "default"
 ) -> dict:
     """
     Crée une nouvelle mémoire (namespace isolé).
+    
+    L'ontologie est copiée sur S3 pour persistance et versioning.
     
     Args:
         memory_id: Identifiant unique (ex: "quoteflow-legal")
         name: Nom lisible de la mémoire
         description: Description optionnelle
+        ontology: Nom de l'ontologie à utiliser (default, legal, cloud, managed-services, technical)
         
     Returns:
         Informations sur la mémoire créée
     """
     try:
+        # Vérifier que l'ontologie existe et la récupérer
+        from .core.ontology import get_ontology_manager
+        ontology_manager = get_ontology_manager()
+        ontology_data = ontology_manager.get_ontology(ontology)
+        
+        if not ontology_data:
+            available = [o["name"] for o in ontology_manager.list_ontologies()]
+            return {
+                "status": "error",
+                "message": f"Ontologie '{ontology}' non trouvée. Disponibles: {available}"
+            }
+        
+        # Stocker l'ontologie sur S3 pour la mémoire
+        import yaml
+        ontology_yaml = yaml.dump(ontology_data, allow_unicode=True, default_flow_style=False)
+        ontology_bytes = ontology_yaml.encode('utf-8')
+        
+        ontology_s3_result = await get_storage().upload_document(
+            memory_id=memory_id,
+            filename=f"_ontology_{ontology}.yaml",
+            content=ontology_bytes,
+            metadata={"type": "ontology", "ontology_name": ontology}
+        )
+        
+        print(f"📝 [Memory] Ontologie '{ontology}' stockée: {ontology_s3_result['uri']}", file=sys.stderr)
+        
+        # Créer la mémoire dans le graphe avec l'URI S3 de l'ontologie
         memory = await get_graph().create_memory(
             memory_id=memory_id,
             name=name,
-            description=description
+            description=description,
+            ontology=ontology,
+            ontology_uri=ontology_s3_result["uri"]
         )
+        
         return {
             "status": "created",
             "memory_id": memory.id,
             "name": memory.name,
-            "description": memory.description
+            "description": memory.description,
+            "ontology": memory.ontology,
+            "ontology_uri": ontology_s3_result["uri"]
         }
     except ValueError as e:
         return {"status": "error", "message": str(e)}
@@ -162,6 +198,7 @@ async def memory_list() -> dict:
                     "id": m.id,
                     "name": m.name,
                     "description": m.description,
+                    "ontology": m.ontology,
                     "created_at": m.created_at.isoformat() if m.created_at else None
                 }
                 for m in memories
@@ -266,8 +303,9 @@ async def memory_ingest(
                 "s3_uri": s3_result["uri"]
             }
         
-        # Extraction des entités/relations via LLM
-        extraction = await get_extractor().extract_from_text(text)
+        # Extraction des entités/relations via LLM avec l'ontologie de la mémoire
+        ontology_name = memory.ontology if memory.ontology else "default"
+        extraction = await get_extractor().extract_with_ontology(text, ontology_name)
         
         # Créer le document dans le graphe
         doc_id = str(uuid.uuid4())
@@ -305,35 +343,83 @@ async def memory_ingest(
 
 
 def _extract_text(content: bytes, filename: str) -> Optional[str]:
-    """Extrait le texte d'un document."""
+    """
+    Extrait le texte d'un document.
+    
+    Formats supportés: txt, md, html, docx, pdf, csv
+    """
     ext = filename.lower().split('.')[-1] if '.' in filename else ''
     
     try:
-        if ext == 'txt' or ext == 'md':
+        # Texte brut et Markdown
+        if ext in ('txt', 'md'):
             return content.decode('utf-8', errors='ignore')
         
+        # HTML
+        elif ext in ('html', 'htm'):
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(content.decode('utf-8', errors='ignore'), 'html.parser')
+            # Supprimer scripts et styles
+            for script in soup(["script", "style"]):
+                script.decompose()
+            text = soup.get_text(separator='\n', strip=True)
+            return text
+        
+        # PDF
         elif ext == 'pdf':
             from pypdf import PdfReader
             from io import BytesIO
             reader = PdfReader(BytesIO(content))
-            text = ""
+            text_parts = []
             for page in reader.pages:
-                text += page.extract_text() + "\n"
-            return text
+                page_text = page.extract_text()
+                if page_text:
+                    text_parts.append(page_text)
+            return "\n".join(text_parts)
         
+        # DOCX (Word)
         elif ext == 'docx':
             from docx import Document
             from io import BytesIO
             doc = Document(BytesIO(content))
-            text = "\n".join([para.text for para in doc.paragraphs])
-            return text
+            
+            text_parts = []
+            
+            # Extraire les paragraphes
+            for para in doc.paragraphs:
+                if para.text.strip():
+                    text_parts.append(para.text)
+            
+            # Extraire le texte des tableaux
+            for table in doc.tables:
+                for row in table.rows:
+                    row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
+                    if row_text:
+                        text_parts.append(row_text)
+            
+            return "\n".join(text_parts)
+        
+        # CSV
+        elif ext == 'csv':
+            import csv
+            from io import StringIO
+            
+            # Décoder le contenu
+            text_content = content.decode('utf-8', errors='ignore')
+            reader = csv.reader(StringIO(text_content))
+            
+            rows = []
+            for row in reader:
+                rows.append(" | ".join(row))
+            
+            return "\n".join(rows)
         
         else:
-            # Tenter de décoder comme texte
+            # Tenter de décoder comme texte (fallback)
             return content.decode('utf-8', errors='ignore')
             
     except Exception as e:
-        print(f"⚠️ [Extract] Erreur extraction texte: {e}", file=sys.stderr)
+        print(f"⚠️ [Extract] Erreur extraction texte ({ext}): {e}", file=sys.stderr)
         return None
 
 
@@ -551,6 +637,192 @@ async def admin_revoke_token(token_hash_prefix: str) -> dict:
 # =============================================================================
 
 @mcp.tool()
+async def memory_graph(memory_id: str, format: str = "full") -> dict:
+    """
+    Récupère le graphe complet d'une mémoire (entités, relations et documents).
+    
+    Utile pour visualiser ou exporter le graphe de connaissances.
+    Inclut les documents avec leur URI S3 pour permettre la récupération.
+    
+    Args:
+        memory_id: ID de la mémoire
+        format: "full" (tout), "nodes" (entités+docs), "edges" (relations), "documents" (liste docs avec URI S3)
+        
+    Returns:
+        nodes: Liste des entités et documents avec leurs propriétés
+        edges: Liste des relations entre entités et documents
+        documents: Liste des documents avec id, filename, uri S3
+    """
+    try:
+        graph_data = await get_graph().get_full_graph(memory_id)
+        
+        if format == "nodes":
+            return {
+                "status": "ok",
+                "memory_id": memory_id,
+                "node_count": len(graph_data["nodes"]),
+                "nodes": graph_data["nodes"]
+            }
+        elif format == "edges":
+            return {
+                "status": "ok",
+                "memory_id": memory_id,
+                "edge_count": len(graph_data["edges"]),
+                "edges": graph_data["edges"]
+            }
+        elif format == "documents":
+            return {
+                "status": "ok",
+                "memory_id": memory_id,
+                "document_count": len(graph_data["documents"]),
+                "documents": graph_data["documents"]
+            }
+        else:  # full
+            return {
+                "status": "ok",
+                "memory_id": memory_id,
+                "node_count": len(graph_data["nodes"]),
+                "edge_count": len(graph_data["edges"]),
+                "document_count": len(graph_data["documents"]),
+                "nodes": graph_data["nodes"],
+                "edges": graph_data["edges"],
+                "documents": graph_data["documents"]
+            }
+        
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@mcp.tool()
+async def document_list(memory_id: str) -> dict:
+    """
+    Liste tous les documents d'une mémoire.
+    
+    Args:
+        memory_id: ID de la mémoire
+        
+    Returns:
+        Liste des documents avec leurs métadonnées
+    """
+    try:
+        graph_data = await get_graph().get_full_graph(memory_id)
+        docs = graph_data.get("documents", [])
+        
+        return {
+            "status": "ok",
+            "memory_id": memory_id,
+            "count": len(docs),
+            "documents": docs
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@mcp.tool()
+async def document_get(memory_id: str, document_id: str) -> dict:
+    """
+    Récupère les informations et le contenu d'un document.
+    
+    Args:
+        memory_id: ID de la mémoire
+        document_id: ID du document
+        
+    Returns:
+        Métadonnées et contenu du document
+    """
+    try:
+        # Récupérer les infos du document depuis le graphe
+        doc_info = await get_graph().get_document(memory_id, document_id)
+        
+        if not doc_info:
+            return {"status": "error", "message": f"Document '{document_id}' non trouvé"}
+        
+        # Récupérer le contenu depuis S3
+        content = None
+        if doc_info.get("uri"):
+            try:
+                # Extraire memory_id et clé de l'URI
+                uri = doc_info["uri"]
+                content_bytes = await get_storage().download_document(memory_id, uri)
+                content = content_bytes.decode('utf-8', errors='ignore')
+            except Exception as e:
+                content = f"[Erreur lecture S3: {e}]"
+        
+        return {
+            "status": "ok",
+            "document": {
+                "id": doc_info.get("id"),
+                "filename": doc_info.get("filename"),
+                "uri": doc_info.get("uri"),
+                "hash": doc_info.get("hash"),
+                "ingested_at": doc_info.get("ingested_at")
+            },
+            "content": content
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@mcp.tool()
+async def document_delete(memory_id: str, document_id: str) -> dict:
+    """
+    Supprime un document et ses relations MENTIONS du graphe.
+    
+    ⚠️ Le fichier S3 est conservé pour archive.
+    Les relations MENTIONS sont supprimées du graphe.
+    
+    Args:
+        memory_id: ID de la mémoire
+        document_id: ID du document à supprimer
+        
+    Returns:
+        Statut de la suppression
+    """
+    try:
+        result = await get_graph().delete_document(memory_id, document_id)
+        
+        if result.get("deleted"):
+            return {
+                "status": "deleted",
+                "document_id": document_id,
+                "relations_deleted": result.get("relations_deleted", 0)
+            }
+        return {"status": "error", "message": result.get("message", "Document non trouvé")}
+        
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@mcp.tool()
+async def ontology_list() -> dict:
+    """
+    Liste toutes les ontologies disponibles.
+    
+    Les ontologies définissent les règles d'extraction pour différents domaines:
+    - default: Extraction générique
+    - legal: Documents juridiques et contractuels
+    - cloud: Infrastructure cloud et certifications
+    - managed-services: Infogérance et services managés
+    - technical: Documentation technique et API
+    
+    Returns:
+        Liste des ontologies avec leurs métadonnées
+    """
+    try:
+        from .core.ontology import get_ontology_manager
+        ontology_manager = get_ontology_manager()
+        ontologies = ontology_manager.list_ontologies()
+        
+        return {
+            "status": "ok",
+            "count": len(ontologies),
+            "ontologies": ontologies
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@mcp.tool()
 async def system_health() -> dict:
     """
     Vérifie l'état de santé du système.
@@ -604,11 +876,13 @@ def main():
     # Récupérer l'app ASGI de FastMCP
     base_app = mcp.sse_app()
     
-    # Empiler les middlewares
+    # Empiler les middlewares avec support fichiers statiques
     # 1. Auth (vérifie le token)
     # 2. Logging (si debug)
+    # 3. Static files (page de visualisation)
     app = AuthMiddleware(base_app, debug=args.debug)
     app = LoggingMiddleware(app, debug=args.debug)
+    app = StaticFilesMiddleware(app)
     
     # Afficher le banner
     print("=" * 70, file=sys.stderr)
