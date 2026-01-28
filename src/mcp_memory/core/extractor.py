@@ -21,8 +21,8 @@ from .models import (
 )
 
 
-# Prompt d'extraction structuré
-EXTRACTION_PROMPT = """Tu es un expert en extraction d'information. Analyse le document suivant et extrait les entités et relations importantes.
+# Prompt d'extraction structuré - Version améliorée avec métriques et durées
+EXTRACTION_PROMPT = """Tu es un expert en extraction d'information pour documents contractuels et juridiques. Analyse le document suivant et extrait TOUTES les entités importantes, y compris les valeurs numériques, métriques et durées.
 
 DOCUMENT:
 ---
@@ -30,49 +30,70 @@ DOCUMENT:
 ---
 
 INSTRUCTIONS:
-1. Identifie toutes les entités nommées (personnes, organisations, lieux, concepts, clauses juridiques, produits, services)
-2. Identifie les relations entre ces entités
-3. Fournis un bref résumé du document
-4. Liste les sujets principaux
+1. Identifie TOUTES les entités nommées (personnes, organisations, lieux, concepts)
+2. Identifie TOUTES les métriques et valeurs numériques importantes (SLA, pourcentages, taux)
+3. Identifie TOUTES les durées et délais (durée de contrat, préavis, périodes)
+4. Identifie TOUS les montants financiers (prix, tarifs, pénalités)
+5. Identifie les relations entre ces entités
+6. Fournis un bref résumé du document
 
-TYPES D'ENTITÉS RECONNUS:
-- Person: Personne physique
-- Organization: Entreprise, institution, organisation
-- Concept: Idée abstraite, terme technique
-- Location: Lieu géographique
-- Date: Date ou période
-- Product: Produit ou technologie
-- Service: Service proposé
-- Clause: Clause contractuelle ou juridique
-- Other: Autre type
+TYPES D'ENTITÉS (avec exemples):
+- Person: Personne physique → "Jean Dupont", "Marie Martin (DSI)"
+- Organization: Entreprise, institution → "Cloud Temple SAS", "ANSSI"
+- Concept: Idée abstraite, terme technique → "SecNumCloud", "Infrastructure IaaS"
+- Location: Lieu géographique → "Paris", "Nanterre"
+- Date: Date précise → "1er janvier 2026", "Q1 2026"
+- Product: Produit ou technologie → "VMware", "Neo4j"
+- Service: Service proposé → "Support 24/7", "Infogérance"
+- Clause: Clause contractuelle → "Clause de réversibilité", "Confidentialité"
+- Certification: Certification ou norme → "ISO 27001", "HDS", "SOC 2 Type II"
+- Metric: Valeur numérique, SLA, pourcentage → "SLA 99.95%", "GTI 15 minutes", "Disponibilité 99.9%"
+- Duration: Durée ou délai → "36 mois", "3 ans", "préavis 6 mois", "rétention 30 jours"
+- Amount: Montant financier → "50 000 EUR/mois", "2 500 EUR HT", "pénalité 10%"
+- Other: Autre type important
+
+EXEMPLES D'EXTRACTION:
+Document: "Le SLA de disponibilité est de 99.95% avec un GTI de 15 minutes."
+→ Entités: {{"name": "SLA Disponibilité 99.95%", "type": "Metric", "description": "Niveau de service garanti"}}
+→ Entités: {{"name": "GTI 15 minutes", "type": "Metric", "description": "Garantie de temps d'intervention"}}
+
+Document: "Contrat de 36 mois renouvelable par tacite reconduction."
+→ Entités: {{"name": "Durée 36 mois", "type": "Duration", "description": "Durée initiale du contrat"}}
+
+Document: "Prix mensuel: 3 150 EUR HT."
+→ Entités: {{"name": "Prix 3 150 EUR HT/mois", "type": "Amount", "description": "Tarification mensuelle"}}
 
 TYPES DE RELATIONS:
 - MENTIONS: Le document mentionne l'entité
-- DEFINES: Le document définit un concept
+- DEFINES: Le document définit/spécifie une valeur
 - RELATED_TO: Relation générique entre entités
 - BELONGS_TO: Appartenance
 - SIGNED_BY: Signature/validation
 - CREATED_BY: Création/auteur
 - REFERENCES: Référence à un autre document/concept
+- HAS_VALUE: Associe une métrique/durée/montant à un concept
+- GUARANTEES: Garantie de service (SLA)
+- CERTIFIES: Certification obtenue
 
-Réponds UNIQUEMENT avec un JSON valide au format suivant:
+Réponds UNIQUEMENT avec un JSON valide:
 ```json
 {{
   "entities": [
-    {{"name": "Nom de l'entité", "type": "Person|Organization|Concept|...", "description": "Description courte"}}
+    {{"name": "Nom de l'entité", "type": "Person|Organization|Metric|Duration|Amount|...", "description": "Description courte"}}
   ],
   "relations": [
-    {{"from_entity": "Nom entité source", "to_entity": "Nom entité cible", "type": "RELATED_TO|DEFINES|...", "description": "Description de la relation"}}
+    {{"from_entity": "Nom entité source", "to_entity": "Nom entité cible", "type": "RELATED_TO|HAS_VALUE|...", "description": "Description de la relation"}}
   ],
   "summary": "Résumé du document en 2-3 phrases",
   "key_topics": ["sujet1", "sujet2", "sujet3"]
 }}
 ```
 
-Important: 
-- Extrais au maximum 20 entités et 30 relations
-- Privilégie la qualité à la quantité
-- Les noms d'entités doivent être normalisés (majuscules, sans articles)
+IMPORTANT: 
+- Extrais au maximum 30 entités et 40 relations
+- NE PAS OUBLIER les métriques (SLA, %), durées (mois, jours) et montants (EUR, USD)
+- Les noms d'entités doivent être explicites et inclure la valeur (ex: "SLA 99.95%" pas juste "SLA")
+- Privilégie l'exhaustivité pour les données chiffrées
 """
 
 
@@ -143,8 +164,19 @@ class ExtractorService:
                 # Note: response_format non supporté par LLMaaS Cloud Temple
             )
             
-            # Parser la réponse
+            # Parser la réponse - DEBUG COMPLET
+            print(f"🔍 [Extractor] DEBUG response type: {type(response)}", file=sys.stderr)
+            print(f"🔍 [Extractor] DEBUG choices count: {len(response.choices)}", file=sys.stderr)
+            if response.choices:
+                print(f"🔍 [Extractor] DEBUG message: {response.choices[0].message}", file=sys.stderr)
+                print(f"🔍 [Extractor] DEBUG finish_reason: {response.choices[0].finish_reason}", file=sys.stderr)
+            
             content = response.choices[0].message.content
+            if content is None:
+                print(f"⚠️ [Extractor] Réponse LLM vide - message complet: {response.choices[0].message}", file=sys.stderr)
+                return ExtractionResult()
+            
+            print(f"🔍 [Extractor] DEBUG content length: {len(content)}", file=sys.stderr)
             result = self._parse_extraction(content)
             
             print(f"✅ [Extractor] Extrait: {len(result.entities)} entités, {len(result.relations)} relations", file=sys.stderr)
@@ -217,6 +249,10 @@ class ExtractorService:
             "product": EntityType.PRODUCT,
             "service": EntityType.SERVICE,
             "clause": EntityType.CLAUSE,
+            "certification": EntityType.CERTIFICATION,
+            "metric": EntityType.METRIC,
+            "duration": EntityType.DURATION,
+            "amount": EntityType.AMOUNT,
         }
         return type_map.get(type_str.lower(), EntityType.OTHER)
     

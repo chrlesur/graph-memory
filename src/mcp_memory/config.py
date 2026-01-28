@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     llmaas_api_url: str = "https://api.ai.cloud-temple.com"
     llmaas_api_key: str
     llmaas_model: str = "gpt-oss:120b"
-    llmaas_max_tokens: int = 4096
+    llmaas_max_tokens: int = 60000  # gpt-oss:120b fait du chain-of-thought qui consomme beaucoup de tokens
     llmaas_temperature: float = 0.1  # Bas pour extraction déterministe
     
     # =========================================================================

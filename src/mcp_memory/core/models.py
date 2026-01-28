@@ -25,6 +25,10 @@ class EntityType(str, Enum):
     PRODUCT = "Product"
     SERVICE = "Service"
     CLAUSE = "Clause"
+    CERTIFICATION = "Certification"  # ISO 27001, HDS, SecNumCloud
+    METRIC = "Metric"                # SLA 99.95%, GTI 15 min
+    DURATION = "Duration"            # 36 mois, préavis 6 mois
+    AMOUNT = "Amount"                # 50 000 EUR/mois
     OTHER = "Other"
 
 
