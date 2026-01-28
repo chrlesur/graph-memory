@@ -766,17 +766,22 @@ async def document_get(memory_id: str, document_id: str) -> dict:
 @mcp.tool()
 async def document_delete(memory_id: str, document_id: str) -> dict:
     """
-    Supprime un document et ses relations MENTIONS du graphe.
+    Supprime un document et nettoie le graphe.
     
     ⚠️ Le fichier S3 est conservé pour archive.
-    Les relations MENTIONS sont supprimées du graphe.
+    
+    Supprime :
+    - Le nœud Document
+    - Les relations MENTIONS du document
+    - Les entités orphelines (non mentionnées par d'autres documents)
+    - Les relations RELATED_TO impliquant des entités orphelines
     
     Args:
         memory_id: ID de la mémoire
         document_id: ID du document à supprimer
         
     Returns:
-        Statut de la suppression
+        Statut de la suppression avec compteurs
     """
     try:
         result = await get_graph().delete_document(memory_id, document_id)
@@ -785,9 +790,10 @@ async def document_delete(memory_id: str, document_id: str) -> dict:
             return {
                 "status": "deleted",
                 "document_id": document_id,
-                "relations_deleted": result.get("relations_deleted", 0)
+                "relations_deleted": result.get("relations_deleted", 0),
+                "entities_deleted": result.get("entities_deleted", 0)
             }
-        return {"status": "error", "message": result.get("message", "Document non trouvé")}
+        return {"status": "error", "message": "Document non trouvé"}
         
     except Exception as e:
         return {"status": "error", "message": str(e)}

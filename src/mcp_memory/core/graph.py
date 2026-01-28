@@ -374,21 +374,62 @@ class GraphService:
             return None
 
     async def delete_document(self, memory_id: str, doc_id: str) -> Dict[str, Any]:
-        """Supprime un document et ses relations MENTIONS."""
+        """
+        Supprime un document et nettoie le graphe.
+        
+        Supprime :
+        1. Le document lui-même
+        2. Les relations MENTIONS du document
+        3. Les entités orphelines (non mentionnées par d'autres documents)
+        4. Les relations RELATED_TO impliquant des entités orphelines
+        """
         async with self.session() as session:
-            # D'abord compter les relations MENTIONS qui vont être supprimées
+            # D'abord, récupérer les entités mentionnées UNIQUEMENT par ce document
+            # (celles qui deviendront orphelines après suppression)
+            orphan_result = await session.run(
+                """
+                MATCH (d:Document {id: $doc_id, memory_id: $memory_id})-[:MENTIONS]->(e:Entity)
+                WHERE NOT exists {
+                    MATCH (other:Document)-[:MENTIONS]->(e)
+                    WHERE other.id <> $doc_id
+                }
+                RETURN collect(e.name) as orphan_names
+                """,
+                doc_id=doc_id,
+                memory_id=memory_id
+            )
+            orphan_record = await orphan_result.single()
+            orphan_names = orphan_record["orphan_names"] if orphan_record else []
+            
+            # Compter les relations MENTIONS qui vont être supprimées
             count_result = await session.run(
                 """
-                MATCH (d:Document {id: $doc_id, memory_id: $memory_id})-[r:MENTIONS]-()
+                MATCH (d:Document {id: $doc_id, memory_id: $memory_id})-[r:MENTIONS]->()
                 RETURN count(r) as relations
                 """,
                 doc_id=doc_id,
                 memory_id=memory_id
             )
             count_record = await count_result.single()
-            relations_count = count_record["relations"] if count_record else 0
+            mentions_count = count_record["relations"] if count_record else 0
             
-            # Puis supprimer le document et ses relations
+            # Supprimer les entités orphelines et leurs relations RELATED_TO
+            entities_deleted = 0
+            if orphan_names:
+                delete_orphans = await session.run(
+                    """
+                    MATCH (e:Entity {memory_id: $memory_id})
+                    WHERE e.name IN $orphan_names
+                    DETACH DELETE e
+                    RETURN count(e) as deleted
+                    """,
+                    memory_id=memory_id,
+                    orphan_names=orphan_names
+                )
+                orphan_deleted = await delete_orphans.single()
+                entities_deleted = orphan_deleted["deleted"] if orphan_deleted else 0
+            
+            # Puis supprimer le document lui-même
             result = await session.run(
                 """
                 MATCH (d:Document {id: $doc_id, memory_id: $memory_id})
@@ -402,9 +443,15 @@ class GraphService:
             record = await result.single()
             deleted = record["deleted"] > 0 if record else False
             
+            if deleted:
+                print(f"🗑️ [Graph] Document supprimé: {doc_id}", file=sys.stderr)
+                print(f"   Entités orphelines supprimées: {entities_deleted}", file=sys.stderr)
+                print(f"   Relations MENTIONS supprimées: {mentions_count}", file=sys.stderr)
+            
             return {
                 "deleted": deleted,
-                "relations_deleted": relations_count if deleted else 0
+                "relations_deleted": mentions_count if deleted else 0,
+                "entities_deleted": entities_deleted if deleted else 0
             }
     
     # =========================================================================

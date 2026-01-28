@@ -565,8 +565,11 @@ def document_delete(ctx, memory_id, document_id, force):
             if result.get('status') in ('ok', 'deleted'):
                 console.print(f"[green]✅ Document supprimé![/green]")
                 relations = result.get('relations_deleted', 0)
+                entities = result.get('entities_deleted', 0)
                 if relations:
-                    console.print(f"   Relations supprimées: [cyan]{relations}[/cyan]")
+                    console.print(f"   Relations MENTIONS supprimées: [cyan]{relations}[/cyan]")
+                if entities:
+                    console.print(f"   Entités orphelines supprimées: [cyan]{entities}[/cyan]")
             else:
                 console.print(f"[red]❌ Erreur: {result.get('message', result)}[/red]")
                 
