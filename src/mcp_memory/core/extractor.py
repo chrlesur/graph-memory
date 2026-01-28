@@ -91,7 +91,6 @@ Réponds UNIQUEMENT avec un JSON valide:
 ```
 
 IMPORTANT: 
-- Extrais au maximum 30 entités et 40 relations
 - NE PAS OUBLIER les métriques (SLA, %), durées (mois, jours) et montants (EUR, USD)
 - Les noms d'entités doivent être explicites et inclure la valeur (ex: "SLA 99.95%" pas juste "SLA")
 - Privilégie l'exhaustivité pour les données chiffrées
@@ -367,6 +366,42 @@ class ExtractorService:
                 "model": self._model,
                 "message": f"Erreur LLMaaS: {str(e)}"
             }
+
+
+    async def generate_answer(self, prompt: str) -> str:
+        """
+        Génère une réponse à partir d'un prompt.
+        
+        Utilisé pour le Q&A sur le graphe de connaissances.
+        
+        Args:
+            prompt: Prompt complet avec contexte et question
+            
+        Returns:
+            Réponse générée par le LLM
+        """
+        try:
+            response = await self._client.chat.completions.create(
+                model=self._model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "Tu es un assistant expert qui répond à des questions basées sur un graphe de connaissances. Réponds de manière concise et précise."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                temperature=0.3,  # Plus déterministe pour les réponses factuelles
+                max_tokens=1000
+            )
+            
+            return response.choices[0].message.content or "Pas de réponse générée."
+            
+        except Exception as e:
+            print(f"❌ [Extractor] Erreur génération réponse: {e}", file=sys.stderr)
+            return f"Erreur lors de la génération de la réponse: {str(e)}"
 
 
 # Singleton pour usage global

@@ -476,6 +476,87 @@ async def memory_search(
 
 
 @mcp.tool()
+async def question_answer(
+    memory_id: str,
+    question: str
+) -> dict:
+    """
+    Pose une question sur une mémoire et obtient une réponse basée sur le graphe.
+    
+    Utilise le graphe de connaissances pour répondre à la question.
+    Recherche les entités pertinentes puis génère une réponse avec le LLM.
+    
+    Args:
+        memory_id: ID de la mémoire
+        question: Question en langage naturel
+        
+    Returns:
+        Réponse générée avec les entités liées
+    """
+    try:
+        # 1. Rechercher les entités pertinentes
+        entities = await get_graph().search_entities(memory_id, search_query=question, limit=10)
+        
+        if not entities:
+            return {
+                "status": "ok",
+                "answer": "Je n'ai pas trouvé d'informations pertinentes dans cette mémoire pour répondre à votre question.",
+                "entities": []
+            }
+        
+        # 2. Récupérer le contexte de chaque entité
+        context_parts = []
+        entity_names = []
+        
+        for entity in entities[:5]:  # Top 5 entités
+            entity_names.append(entity["name"])
+            ctx = await get_graph().get_entity_context(memory_id, entity["name"], depth=1)
+            
+            # Construire une description du contexte
+            ctx_text = f"- {entity['name']} ({entity.get('type', '?')})"
+            if entity.get('description'):
+                ctx_text += f": {entity['description']}"
+            
+            # Ajouter les relations
+            for rel in ctx.relations[:3]:
+                ctx_text += f"\n  → {rel.get('type', 'RELATED_TO')}: {rel.get('description', '')}"
+            
+            # Ajouter les entités liées
+            related = [r['name'] for r in ctx.related_entities[:5]]
+            if related:
+                ctx_text += f"\n  Lié à: {', '.join(related)}"
+            
+            context_parts.append(ctx_text)
+        
+        # 3. Générer la réponse avec le LLM
+        context = "\n".join(context_parts)
+        
+        prompt = f"""Tu es un assistant qui répond à des questions basées sur un graphe de connaissances.
+
+Contexte extrait du graphe :
+{context}
+
+Question de l'utilisateur : {question}
+
+Réponds de manière concise et précise en te basant UNIQUEMENT sur le contexte fourni.
+Si le contexte ne permet pas de répondre complètement, dis-le clairement.
+"""
+        
+        # Appeler le LLM pour générer la réponse
+        answer = await get_extractor().generate_answer(prompt)
+        
+        return {
+            "status": "ok",
+            "answer": answer,
+            "entities": entity_names,
+            "context_used": context
+        }
+        
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@mcp.tool()
 async def memory_get_context(
     memory_id: str,
     entity_name: str,
