@@ -715,6 +715,7 @@ def shell(ctx):
     
     client = MCPClient(ctx.obj['url'], ctx.obj['token'])
     current_memory = None
+    debug_mode = False  # Mode debug désactivé par défaut
     
     COMMANDS = {
         'help': 'Afficher l\'aide',
@@ -727,6 +728,7 @@ def shell(ctx):
         'delete': 'Supprimer la mémoire courante',
         'delete <id>': 'Supprimer une mémoire',
         'ask <question>': 'Poser une question',
+        'debug': 'Activer/désactiver le mode debug',
         'clear': 'Effacer l\'écran',
         'exit': 'Quitter'
     }
@@ -740,7 +742,7 @@ def shell(ctx):
         console.print(table)
     
     async def run_command(cmd: str):
-        nonlocal current_memory
+        nonlocal current_memory, debug_mode
         
         parts = cmd.strip().split(maxsplit=1)
         if not parts:
@@ -756,6 +758,11 @@ def shell(ctx):
             
             elif command == 'help':
                 show_help()
+            
+            elif command == 'debug':
+                debug_mode = not debug_mode
+                status = "[green]ACTIVÉ[/green]" if debug_mode else "[dim]désactivé[/dim]"
+                console.print(f"🔍 Mode debug: {status}")
             
             elif command == 'clear':
                 console.clear()
@@ -839,12 +846,35 @@ def shell(ctx):
                 elif not current_memory:
                     console.print("[yellow]Sélectionnez une mémoire avec 'use <id>'[/yellow]")
                 else:
+                    if debug_mode:
+                        console.print(f"\n[bold cyan]🔍 DEBUG - Requête:[/bold cyan]")
+                        console.print(f"   Memory: [cyan]{current_memory}[/cyan]")
+                        console.print(f"   Question: [cyan]{args}[/cyan]")
+                    
                     result = await client.call_tool('question_answer', {
                         'memory_id': current_memory,
                         'question': args
                     })
+                    
+                    if debug_mode:
+                        console.print(f"\n[bold cyan]🔍 DEBUG - Résultat complet:[/bold cyan]")
+                        console.print(Syntax(json.dumps(result, indent=2, ensure_ascii=False), "json"))
+                    
                     if result.get('status') == 'ok':
+                        if debug_mode:
+                            console.print(f"\n[bold cyan]🔍 DEBUG - Entités trouvées:[/bold cyan]")
+                            for e in result.get('entities', []):
+                                console.print(f"   • [green]{e}[/green]")
+                            
+                            console.print(f"\n[bold cyan]🔍 DEBUG - Contexte utilisé:[/bold cyan]")
+                            console.print(Panel(result.get('context_used', ''), border_style="dim"))
+                        
                         console.print(Panel(Markdown(result.get('answer', '')), title="💡", border_style="green"))
+                        
+                        if not debug_mode:
+                            entities = result.get('entities', [])
+                            if entities:
+                                console.print(f"[dim]Entités: {', '.join(entities[:5])}[/dim]")
                     else:
                         console.print(f"[red]❌ {result.get('message')}[/red]")
             
