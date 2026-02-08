@@ -600,8 +600,18 @@ class GraphService:
         Ex: "Cloud Temple" trouvera "Cloud Temple SAS", "Contrat Cloud Temple", etc.
         Ex: "certification" trouvera toutes les entités de type Certification
         """
-        # Tokeniser la requête (mots individuels)
-        tokens = [t.strip() for t in search_query.lower().split() if len(t.strip()) > 2]
+        # Mots vides français à ignorer
+        STOP_WORDS = {
+            'les', 'des', 'une', 'uns', 'aux', 'par', 'pour', 'dans',
+            'sur', 'avec', 'sans', 'sous', 'entre', 'vers', 'chez',
+            'que', 'qui', 'quoi', 'dont', 'est', 'sont', 'être',
+            'avoir', 'fait', 'faire', 'peut', 'tout', 'tous', 'cette',
+            'ces', 'son', 'ses', 'leur', 'nos', 'vos', 'plus', 'moins',
+            'aussi', 'très', 'bien', 'mais', 'comme', 'donc', 'car',
+        }
+        # Tokeniser la requête (mots individuels, sans stop words)
+        tokens = [t.strip() for t in search_query.lower().split()
+                  if len(t.strip()) > 2 and t.strip() not in STOP_WORDS]
         
         if not tokens:
             return []

@@ -41,7 +41,7 @@ from .client import MCPClient
 from .display import (
     show_memories_table, show_documents_table, show_graph_summary,
     show_entity_context, show_error, show_success, show_warning,
-    show_answer, console
+    show_answer, show_storage_check, show_cleanup_result, console
 )
 
 
@@ -52,7 +52,8 @@ from .display import (
 # Liste des commandes du shell
 SHELL_COMMANDS = [
     "help", "list", "use", "info", "graph", "docs", "entities",
-    "entity", "relations", "ask", "limit", "delete", "debug", "clear", "exit", "quit",
+    "entity", "relations", "ask", "check", "cleanup", "limit",
+    "delete", "debug", "clear", "exit", "quit",
 ]
 
 
@@ -403,6 +404,36 @@ async def cmd_ask(client: MCPClient, state: dict, args: str, debug: bool):
         show_error(result.get("message", "Erreur"))
 
 
+async def cmd_check(client: MCPClient, state: dict, args: str):
+    """
+    Vérifie la cohérence S3 / graphe.
+    
+    Sans argument : vérifie toutes les mémoires.
+    Avec un memory_id : vérifie uniquement cette mémoire.
+    """
+    params = {}
+    if args.strip():
+        params["memory_id"] = args.strip()
+    elif state.get("memory"):
+        params["memory_id"] = state["memory"]
+    
+    console.print("[dim]🔍 Vérification S3 en cours...[/dim]")
+    result = await client.call_tool("storage_check", params)
+    show_storage_check(result)
+
+
+async def cmd_cleanup(client: MCPClient, state: dict, force: bool = False):
+    """
+    Nettoie les fichiers orphelins sur S3.
+    
+    force=False : dry run (liste seulement).
+    force=True : supprime réellement.
+    """
+    console.print("[dim]🧹 Analyse des orphelins S3...[/dim]")
+    result = await client.call_tool("storage_cleanup", {"dry_run": not force})
+    show_cleanup_result(result)
+
+
 async def cmd_delete(client: MCPClient, state: dict, args: str):
     """Supprime une mémoire ou un document."""
     from rich.prompt import Confirm
@@ -454,8 +485,10 @@ def run_shell(url: str, token: str):
         "entity <n>":"Contexte d'une entité (relations, documents, voisins)",
         "relations": "Relations par type (avec exemples)",
         "ask <q>":   "Poser une question",
+        "check":     "Vérifier cohérence S3/graphe (docs accessibles, orphelins)",
+        "cleanup":   "Lister les orphelins S3 (--force pour supprimer)",
         "limit [N]": "Voir/changer le limit de recherche (défaut: 10)",
-        "delete":    "Supprimer la mémoire courante",
+        "delete":    "Supprimer la mémoire courante (+ S3)",
         "debug":     "Activer/désactiver le debug",
         "clear":     "Effacer l'écran",
         "exit":      "Quitter",
@@ -538,6 +571,18 @@ def run_shell(url: str, token: str):
                         show_error("Usage: limit <nombre> (ex: limit 20)")
                 else:
                     console.print(f"Limit actuel: [cyan]{state['limit']}[/cyan] entités par recherche")
+
+            elif command == "check":
+                asyncio.run(cmd_check(client, state, args))
+
+            elif command == "cleanup":
+                force = "--force" in args.lower() if args else False
+                if force:
+                    from rich.prompt import Confirm
+                    if not Confirm.ask("[yellow]⚠️ Supprimer les fichiers orphelins S3 ?[/yellow]"):
+                        console.print("[dim]Annulé.[/dim]")
+                        continue
+                asyncio.run(cmd_cleanup(client, state, force=force))
 
             elif command == "delete":
                 asyncio.run(cmd_delete(client, state, args))

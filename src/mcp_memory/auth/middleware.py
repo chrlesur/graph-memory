@@ -51,7 +51,7 @@ class AuthMiddleware:
         path = scope.get("path", "")
         
         # Endpoints publics (pas d'auth requise)
-        public_paths = ["/health", "/healthz", "/ready", "/graph", "/api/"]
+        public_paths = ["/health", "/healthz", "/ready", "/graph", "/static/", "/api/"]
         if any(path.startswith(p) for p in public_paths):
             await self.app(scope, receive, send)
             return
@@ -200,6 +200,7 @@ class StaticFilesMiddleware:
             "static"
         )
         self._graph_service = None
+        self._extractor_service = None
     
     @property
     def graph_service(self):
@@ -208,6 +209,14 @@ class StaticFilesMiddleware:
             from ..core.graph import get_graph_service
             self._graph_service = get_graph_service()
         return self._graph_service
+    
+    @property
+    def extractor_service(self):
+        """Lazy-load ExtractorService."""
+        if self._extractor_service is None:
+            from ..core.extractor import get_extractor_service
+            self._extractor_service = get_extractor_service()
+        return self._extractor_service
     
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
@@ -221,6 +230,15 @@ class StaticFilesMiddleware:
         if path == "/graph" or path == "/graph/":
             await self._serve_file(send, "graph.html", "text/html")
             return
+        
+        # Fichiers statiques (CSS, JS)
+        if path.startswith("/static/"):
+            rel_path = path[len("/static/"):]
+            # Sécurité : pas de traversée de répertoire
+            if ".." not in rel_path and rel_path:
+                ct = self._guess_content_type(rel_path)
+                await self._serve_file(send, rel_path, ct)
+                return
         
         # Health check
         if path in ("/health", "/healthz", "/ready"):
@@ -239,8 +257,24 @@ class StaticFilesMiddleware:
                 await self._api_graph(send, memory_id)
                 return
         
+        # API REST - Question/Réponse (POST)
+        if path == "/api/ask" and method == "POST":
+            body = await self._read_body(receive)
+            await self._api_ask(send, body)
+            return
+        
         # Passer au handler suivant
         await self.app(scope, receive, send)
+    
+    async def _read_body(self, receive) -> bytes:
+        """Lit le corps complet d'une requête ASGI."""
+        body = b""
+        while True:
+            message = await receive()
+            body += message.get("body", b"")
+            if not message.get("more_body", False):
+                break
+        return body
     
     async def _api_health(self, send):
         """Retourne l'état de santé du serveur."""
@@ -316,6 +350,112 @@ class StaticFilesMiddleware:
         except Exception as e:
             await self._send_json(send, {"status": "error", "message": str(e)}, 500)
     
+    async def _api_ask(self, send, body: bytes):
+        """
+        Traite une question sur une mémoire et retourne la réponse.
+        
+        Body JSON: {memory_id, question, limit?}
+        Retourne: {status, answer, entities, source_documents}
+        """
+        import json
+        try:
+            payload = json.loads(body.decode('utf-8'))
+            memory_id = payload.get("memory_id")
+            question = payload.get("question")
+            limit = payload.get("limit", 10)
+            
+            if not memory_id or not question:
+                await self._send_json(send, {
+                    "status": "error",
+                    "message": "memory_id et question sont requis"
+                }, 400)
+                return
+            
+            print(f"💬 [ASK] {memory_id}: {question}", file=sys.stderr)
+            
+            # 1. Rechercher les entités pertinentes
+            entities = await self.graph_service.search_entities(
+                memory_id, search_query=question, limit=limit
+            )
+            
+            if not entities:
+                await self._send_json(send, {
+                    "status": "ok",
+                    "answer": "Je n'ai pas trouvé d'informations pertinentes dans cette mémoire.",
+                    "entities": [],
+                    "source_documents": []
+                })
+                return
+            
+            # 2. Récupérer le contexte de chaque entité
+            context_parts = []
+            entity_names = []
+            source_documents = {}
+            
+            for entity in entities:
+                entity_names.append(entity["name"])
+                ctx = await self.graph_service.get_entity_context(
+                    memory_id, entity["name"], depth=1
+                )
+                
+                # Collecter les documents sources
+                for doc in ctx.documents:
+                    if isinstance(doc, dict):
+                        doc_id = doc.get('id', '')
+                        if doc_id and doc_id not in source_documents:
+                            source_documents[doc_id] = {
+                                "id": doc_id,
+                                "filename": doc.get('filename', doc_id),
+                            }
+                
+                # Construire le contexte texte
+                ctx_text = f"- {entity['name']} ({entity.get('type', '?')})"
+                if entity.get('description'):
+                    ctx_text += f": {entity['description']}"
+                
+                for rel in ctx.relations:
+                    ctx_text += f"\n  → {rel.get('type', 'RELATED_TO')}: {rel.get('description', '')}"
+                
+                related = [r['name'] for r in ctx.related_entities]
+                if related:
+                    ctx_text += f"\n  Lié à: {', '.join(related)}"
+                
+                context_parts.append(ctx_text)
+            
+            # 3. Générer la réponse LLM
+            context = "\n".join(context_parts)
+            prompt = f"""Tu es un assistant qui répond à des questions basées sur un graphe de connaissances.
+
+Contexte extrait du graphe :
+{context}
+
+Question de l'utilisateur : {question}
+
+Réponds de manière concise et précise en te basant UNIQUEMENT sur le contexte fourni.
+Si le contexte ne permet pas de répondre complètement, dis-le clairement.
+Utilise le format Markdown pour structurer ta réponse.
+"""
+            answer = await self.extractor_service.generate_answer(prompt)
+            
+            await self._send_json(send, {
+                "status": "ok",
+                "answer": answer,
+                "entities": entity_names,
+                "source_documents": list(source_documents.values())
+            })
+            
+        except json.JSONDecodeError:
+            await self._send_json(send, {
+                "status": "error",
+                "message": "JSON invalide dans le body"
+            }, 400)
+        except Exception as e:
+            print(f"❌ [ASK] Erreur: {e}", file=sys.stderr)
+            await self._send_json(send, {
+                "status": "error",
+                "message": str(e)
+            }, 500)
+    
     async def _send_json(self, send, data: dict, status: int = 200):
         """Envoie une réponse JSON."""
         import json
@@ -384,3 +524,17 @@ class StaticFilesMiddleware:
             ],
         })
         await send({"type": "http.response.body", "body": body})
+    
+    @staticmethod
+    def _guess_content_type(filename: str) -> str:
+        """Devine le content-type à partir de l'extension."""
+        ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+        return {
+            'html': 'text/html; charset=utf-8',
+            'css': 'text/css; charset=utf-8',
+            'js': 'application/javascript; charset=utf-8',
+            'json': 'application/json',
+            'png': 'image/png',
+            'svg': 'image/svg+xml',
+            'ico': 'image/x-icon',
+        }.get(ext, 'application/octet-stream')

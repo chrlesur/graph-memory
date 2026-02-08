@@ -258,6 +258,8 @@ class StorageService:
         """
         Liste les documents d'une mémoire.
         
+        Utilise SigV4 pour LIST (compatible Dell ECS).
+        
         Args:
             memory_id: ID de la mémoire
             prefix: Préfixe additionnel (optionnel)
@@ -268,7 +270,8 @@ class StorageService:
         full_prefix = f"{memory_id}/documents/{prefix}"
         
         try:
-            response = self._client.list_objects_v2(
+            # SigV4 pour LIST (Dell ECS)
+            response = self._client_v4.list_objects_v2(
                 Bucket=self._bucket,
                 Prefix=full_prefix
             )
@@ -286,6 +289,194 @@ class StorageService:
         except ClientError as e:
             print(f"❌ [S3] Erreur listing: {e}", file=sys.stderr)
             return []
+    
+    async def check_documents(self, uris: list) -> dict:
+        """
+        Vérifie l'accessibilité de documents S3 à partir d'une liste d'URIs.
+        
+        Pour chaque URI, tente un HEAD pour vérifier l'existence et récupérer
+        la taille. Utilise le client SigV4 pour HEAD (compatible Dell ECS).
+        
+        Args:
+            uris: Liste d'URIs S3 (format s3://bucket/key)
+            
+        Returns:
+            dict avec:
+              - total: nombre total de documents vérifiés
+              - accessible: nombre de documents accessibles
+              - missing: nombre de documents manquants
+              - errors: nombre d'erreurs
+              - total_size_bytes: taille totale des documents accessibles
+              - details: liste de {uri, status, size_bytes, error}
+        """
+        details = []
+        accessible = 0
+        missing = 0
+        errors = 0
+        total_size = 0
+        
+        for uri in uris:
+            key = self._parse_key(uri)
+            try:
+                # HEAD avec SigV4 (plus fiable pour les métadonnées sur Dell ECS)
+                response = self._client_v4.head_object(Bucket=self._bucket, Key=key)
+                size = response.get('ContentLength', 0)
+                details.append({
+                    "uri": uri,
+                    "key": key,
+                    "status": "ok",
+                    "size_bytes": size,
+                    "content_type": response.get('ContentType', ''),
+                    "last_modified": response.get('LastModified', '').isoformat() if hasattr(response.get('LastModified', ''), 'isoformat') else str(response.get('LastModified', '')),
+                    "error": None
+                })
+                accessible += 1
+                total_size += size
+            except ClientError as e:
+                error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+                if error_code in ('404', 'NoSuchKey', 'Not Found'):
+                    details.append({
+                        "uri": uri,
+                        "key": key,
+                        "status": "missing",
+                        "size_bytes": 0,
+                        "error": f"Document non trouvé sur S3"
+                    })
+                    missing += 1
+                else:
+                    details.append({
+                        "uri": uri,
+                        "key": key,
+                        "status": "error",
+                        "size_bytes": 0,
+                        "error": f"Erreur S3 [{error_code}]: {e.response.get('Error', {}).get('Message', str(e))}"
+                    })
+                    errors += 1
+            except Exception as e:
+                details.append({
+                    "uri": uri,
+                    "key": key,
+                    "status": "error",
+                    "size_bytes": 0,
+                    "error": str(e)
+                })
+                errors += 1
+        
+        return {
+            "total": len(uris),
+            "accessible": accessible,
+            "missing": missing,
+            "errors": errors,
+            "total_size_bytes": total_size,
+            "details": details
+        }
+    
+    async def list_all_objects(self, prefix: str = "") -> list:
+        """
+        Liste TOUS les objets du bucket (avec pagination).
+        
+        Utilise le client SigV4 (compatible Dell ECS pour LIST).
+        
+        Args:
+            prefix: Préfixe pour filtrer (optionnel)
+            
+        Returns:
+            Liste de {key, uri, size, last_modified}
+        """
+        objects = []
+        continuation_token = None
+        
+        try:
+            while True:
+                params = {
+                    'Bucket': self._bucket,
+                    'Prefix': prefix,
+                    'MaxKeys': 1000
+                }
+                if continuation_token:
+                    params['ContinuationToken'] = continuation_token
+                
+                # SigV4 pour LIST (Dell ECS)
+                response = self._client_v4.list_objects_v2(**params)
+                
+                for obj in response.get('Contents', []):
+                    objects.append({
+                        'key': obj['Key'],
+                        'uri': f"s3://{self._bucket}/{obj['Key']}",
+                        'size': obj['Size'],
+                        'last_modified': obj['LastModified'].isoformat() if hasattr(obj['LastModified'], 'isoformat') else str(obj['LastModified'])
+                    })
+                
+                # Pagination
+                if response.get('IsTruncated'):
+                    continuation_token = response.get('NextContinuationToken')
+                else:
+                    break
+            
+            return objects
+            
+        except ClientError as e:
+            print(f"❌ [S3] Erreur listing complet: {e}", file=sys.stderr)
+            return []
+    
+    async def delete_prefix(self, prefix: str) -> dict:
+        """
+        Supprime tous les objets S3 sous un préfixe donné.
+        
+        Utilisé pour nettoyer tous les fichiers d'une mémoire.
+        
+        Args:
+            prefix: Préfixe S3 (ex: "quoteflow-legal/")
+            
+        Returns:
+            dict avec deleted_count et errors
+        """
+        objects = await self.list_all_objects(prefix=prefix)
+        deleted_count = 0
+        error_count = 0
+        
+        for obj in objects:
+            try:
+                self._client.delete_object(Bucket=self._bucket, Key=obj['key'])
+                deleted_count += 1
+                print(f"🗑️ [S3] Supprimé: {obj['key']}", file=sys.stderr)
+            except ClientError as e:
+                error_count += 1
+                print(f"❌ [S3] Erreur suppression {obj['key']}: {e}", file=sys.stderr)
+        
+        return {
+            "deleted_count": deleted_count,
+            "error_count": error_count,
+            "total_found": len(objects)
+        }
+    
+    async def delete_objects(self, keys: list) -> dict:
+        """
+        Supprime une liste d'objets S3 par leurs clés.
+        
+        Args:
+            keys: Liste de clés S3 ou URIs
+            
+        Returns:
+            dict avec deleted_count et errors
+        """
+        deleted_count = 0
+        error_count = 0
+        
+        for key_or_uri in keys:
+            key = self._parse_key(key_or_uri)
+            try:
+                self._client.delete_object(Bucket=self._bucket, Key=key)
+                deleted_count += 1
+                print(f"🗑️ [S3] Supprimé: {key}", file=sys.stderr)
+            except ClientError as e:
+                error_count += 1
+                print(f"❌ [S3] Erreur suppression {key}: {e}", file=sys.stderr)
+        
+        return {
+            "deleted_count": deleted_count,
+            "error_count": error_count
+        }
     
     async def test_connection(self) -> dict:
         """

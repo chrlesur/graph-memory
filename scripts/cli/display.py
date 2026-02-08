@@ -277,6 +277,128 @@ def show_warning(msg: str):
     console.print(f"[yellow]⚠️ {msg}[/yellow]")
 
 
+def show_storage_check(result: dict):
+    """
+    Affiche le rapport de vérification S3 dans un format lisible.
+    
+    Affiche :
+    - Panneau résumé (docs accessibles, manquants, orphelins)
+    - Tableau des documents vérifiés (avec statut)
+    - Tableau des fichiers orphelins sur S3
+    """
+    if result.get("status") != "ok":
+        show_error(result.get("message", "Erreur lors du check S3"))
+        return
+    
+    scope = result.get("scope", "all")
+    graph_docs = result.get("graph_documents", {})
+    orphans = result.get("s3_orphans", {})
+    
+    # --- Panneau résumé ---
+    summary = result.get("summary", "")
+    console.print(Panel.fit(
+        f"[bold]Scope:[/bold] [cyan]{scope}[/cyan]  "
+        f"[bold]Mémoires:[/bold] [cyan]{result.get('memories_checked', 0)}[/cyan]  "
+        f"[bold]Objets S3:[/bold] [cyan]{result.get('s3_total_objects', 0)}[/cyan]\n\n"
+        f"{summary}",
+        title="🔍 Vérification S3",
+        border_style="blue",
+    ))
+    
+    # --- Tableau des documents du graphe ---
+    details = graph_docs.get("details", [])
+    if details:
+        table = Table(
+            title=f"📄 Documents dans le graphe ({graph_docs.get('total', 0)})",
+            show_header=True
+        )
+        table.add_column("Statut", width=3)
+        table.add_column("Mémoire", style="cyan", max_width=20)
+        table.add_column("Fichier", style="white", max_width=30)
+        table.add_column("Taille", style="dim", justify="right", width=10)
+        table.add_column("Type", style="dim", max_width=15)
+        
+        for d in details:
+            status_icon = {
+                "ok": "[green]✅[/green]",
+                "missing": "[red]❌[/red]",
+                "error": "[yellow]⚠️[/yellow]",
+            }.get(d.get("status", ""), "❓")
+            
+            size = d.get("size_bytes", 0)
+            size_str = _format_size(size) if size > 0 else "-"
+            
+            table.add_row(
+                status_icon,
+                d.get("memory_id", "?"),
+                d.get("filename", d.get("key", "?"))[:30],
+                size_str,
+                d.get("content_type", "")[:15] if d.get("content_type") else "-",
+            )
+        
+        console.print(table)
+    
+    # --- Tableau des orphelins ---
+    orphan_files = orphans.get("files", [])
+    if orphan_files:
+        table = Table(
+            title=f"⚠️ Fichiers orphelins S3 ({orphans.get('count', 0)}, {orphans.get('total_size', '?')})",
+            show_header=True,
+            border_style="yellow"
+        )
+        table.add_column("#", style="dim", width=3)
+        table.add_column("Clé S3", style="yellow", max_width=50)
+        table.add_column("Taille", style="dim", justify="right", width=10)
+        table.add_column("Modifié le", style="dim", width=12)
+        
+        for i, o in enumerate(orphan_files, 1):
+            table.add_row(
+                str(i),
+                o.get("key", "?")[:50],
+                _format_size(o.get("size", 0)),
+                str(o.get("last_modified", ""))[:10],
+            )
+        
+        console.print(table)
+        console.print("[dim]Pour nettoyer: cleanup (dry run) ou cleanup --force (suppression)[/dim]")
+    elif graph_docs.get("total", 0) > 0:
+        console.print("[green]✅ Aucun fichier orphelin sur S3. Stockage propre ![/green]")
+
+
+def show_cleanup_result(result: dict):
+    """Affiche le résultat du nettoyage S3."""
+    if result.get("status") != "ok":
+        show_error(result.get("message", "Erreur"))
+        return
+    
+    message = result.get("message", "")
+    console.print(f"\n{message}")
+    
+    if result.get("dry_run") and result.get("files"):
+        files = result["files"]
+        table = Table(title="📋 Fichiers à supprimer", show_header=True)
+        table.add_column("#", style="dim", width=3)
+        table.add_column("Clé S3", style="yellow", max_width=50)
+        table.add_column("Taille", style="dim", justify="right", width=10)
+        
+        for i, f in enumerate(files, 1):
+            table.add_row(
+                str(i),
+                f.get("key", "?")[:50],
+                _format_size(f.get("size", 0)),
+            )
+        console.print(table)
+
+
+def _format_size(size_bytes: int) -> str:
+    """Convertit des bytes en taille lisible."""
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if size_bytes < 1024:
+            return f"{size_bytes:.1f} {unit}"
+        size_bytes /= 1024
+    return f"{size_bytes:.1f} TB"
+
+
 def show_answer(answer: str, entities: list = None, source_documents: list = None):
     """Affiche une réponse Q&A avec les documents sources."""
     console.print(Panel.fit(

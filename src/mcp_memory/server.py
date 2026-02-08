@@ -161,20 +161,36 @@ async def memory_create(
 @mcp.tool()
 async def memory_delete(memory_id: str) -> dict:
     """
-    Supprime une mémoire et tout son contenu.
+    Supprime une mémoire et tout son contenu (graphe + S3).
     
     ⚠️ ATTENTION: Cette opération est irréversible !
+    Supprime le namespace Neo4j ET tous les fichiers S3 associés.
     
     Args:
         memory_id: ID de la mémoire à supprimer
         
     Returns:
-        Statut de la suppression
+        Statut de la suppression avec détails S3
     """
     try:
+        # 1. Supprimer tous les fichiers S3 de la mémoire
+        s3_result = {"deleted_count": 0, "error_count": 0}
+        try:
+            s3_result = await get_storage().delete_prefix(f"{memory_id}/")
+            print(f"🗑️ [S3] Nettoyage mémoire {memory_id}: {s3_result['deleted_count']} fichiers supprimés", file=sys.stderr)
+        except Exception as e:
+            print(f"⚠️ [S3] Erreur nettoyage S3 pour {memory_id}: {e}", file=sys.stderr)
+        
+        # 2. Supprimer du graphe Neo4j
         deleted = await get_graph().delete_memory(memory_id)
+        
         if deleted:
-            return {"status": "deleted", "memory_id": memory_id}
+            return {
+                "status": "deleted",
+                "memory_id": memory_id,
+                "s3_files_deleted": s3_result.get("deleted_count", 0),
+                "s3_errors": s3_result.get("error_count", 0)
+            }
         return {"status": "not_found", "memory_id": memory_id}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -889,12 +905,11 @@ async def document_get(memory_id: str, document_id: str) -> dict:
 @mcp.tool()
 async def document_delete(memory_id: str, document_id: str) -> dict:
     """
-    Supprime un document et nettoie le graphe.
-    
-    ⚠️ Le fichier S3 est conservé pour archive.
+    Supprime un document du graphe ET de S3.
     
     Supprime :
-    - Le nœud Document
+    - Le fichier S3 associé
+    - Le nœud Document dans Neo4j
     - Les relations MENTIONS du document
     - Les entités orphelines (non mentionnées par d'autres documents)
     - Les relations RELATED_TO impliquant des entités orphelines
@@ -904,9 +919,22 @@ async def document_delete(memory_id: str, document_id: str) -> dict:
         document_id: ID du document à supprimer
         
     Returns:
-        Statut de la suppression avec compteurs
+        Statut de la suppression avec compteurs (graphe + S3)
     """
     try:
+        # 1. Récupérer l'URI S3 avant suppression du graphe
+        doc_info = await get_graph().get_document(memory_id, document_id)
+        s3_deleted = False
+        
+        if doc_info and doc_info.get("uri"):
+            # 2. Supprimer le fichier S3
+            try:
+                s3_deleted = await get_storage().delete_document(memory_id, doc_info["uri"])
+                print(f"🗑️ [S3] Fichier supprimé: {doc_info['uri']}", file=sys.stderr)
+            except Exception as e:
+                print(f"⚠️ [S3] Erreur suppression S3 pour {doc_info['uri']}: {e}", file=sys.stderr)
+        
+        # 3. Supprimer du graphe Neo4j
         result = await get_graph().delete_document(memory_id, document_id)
         
         if result.get("deleted"):
@@ -914,7 +942,8 @@ async def document_delete(memory_id: str, document_id: str) -> dict:
                 "status": "deleted",
                 "document_id": document_id,
                 "relations_deleted": result.get("relations_deleted", 0),
-                "entities_deleted": result.get("entities_deleted", 0)
+                "entities_deleted": result.get("entities_deleted", 0),
+                "s3_deleted": s3_deleted
             }
         return {"status": "error", "message": "Document non trouvé"}
         
@@ -947,6 +976,210 @@ async def ontology_list() -> dict:
             "count": len(ontologies),
             "ontologies": ontologies
         }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@mcp.tool()
+async def storage_check(memory_id: Optional[str] = None) -> dict:
+    """
+    Vérifie la cohérence entre le graphe Neo4j et le stockage S3.
+    
+    Pour chaque mémoire (ou une mémoire spécifique) :
+    1. Vérifie que chaque document du graphe est accessible sur S3
+    2. Détecte les fichiers orphelins sur S3 (pas de référence dans le graphe)
+    3. Retourne un rapport complet avec statistiques
+    
+    Args:
+        memory_id: ID d'une mémoire spécifique (optionnel, toutes si omis)
+        
+    Returns:
+        Rapport de cohérence S3/Graphe avec documents OK, manquants et orphelins
+    """
+    try:
+        # 1. Récupérer les mémoires à vérifier
+        if memory_id:
+            memory = await get_graph().get_memory(memory_id)
+            if not memory:
+                return {"status": "error", "message": f"Mémoire '{memory_id}' non trouvée"}
+            memories = [memory]
+        else:
+            memories = await get_graph().list_memories()
+        
+        # 2. Collecter toutes les URIs des documents référencés dans le graphe
+        graph_uris = set()          # URIs référencées dans Neo4j
+        graph_uri_details = {}      # URI -> {memory_id, filename, doc_id}
+        memory_prefixes = set()     # Préfixes S3 des mémoires connues
+        
+        for mem in memories:
+            mid = mem.id
+            memory_prefixes.add(f"{mid}/")
+            graph_data = await get_graph().get_full_graph(mid)
+            
+            for doc in graph_data.get("documents", []):
+                uri = doc.get("uri", "")
+                if uri:
+                    graph_uris.add(uri)
+                    graph_uri_details[uri] = {
+                        "memory_id": mid,
+                        "filename": doc.get("filename", "?"),
+                        "doc_id": doc.get("id", "?")
+                    }
+        
+        # 3. Vérifier l'accessibilité S3 de chaque document du graphe
+        check_result = await get_storage().check_documents(list(graph_uris))
+        
+        # Enrichir les détails avec les infos du graphe
+        for detail in check_result.get("details", []):
+            uri = detail.get("uri", "")
+            if uri in graph_uri_details:
+                detail["memory_id"] = graph_uri_details[uri]["memory_id"]
+                detail["filename"] = graph_uri_details[uri]["filename"]
+                detail["doc_id"] = graph_uri_details[uri]["doc_id"]
+        
+        # 4. Lister tous les objets S3 pour détecter les orphelins
+        all_s3_objects = await get_storage().list_all_objects()
+        
+        # Convertir les URIs du graphe en clés S3 pour comparaison
+        graph_keys = set()
+        for uri in graph_uris:
+            try:
+                key = get_storage()._parse_key(uri)
+                graph_keys.add(key)
+            except ValueError:
+                pass
+        
+        # Ajouter les ontologies comme fichiers légitimes (pas orphelins)
+        # Les fichiers _ontology_*.yaml sont des fichiers de config, pas des orphelins
+        
+        # Détecter les orphelins : sur S3 mais pas dans le graphe
+        orphans = []
+        for obj in all_s3_objects:
+            key = obj["key"]
+            
+            # Ignorer les fichiers de health check
+            if key.startswith("_health_check/"):
+                continue
+            
+            # Ignorer les ontologies (fichiers légitimes)
+            # Le pattern est {hash[:8]}__ontology_{name}.yaml (double _ car hash + _ontology)
+            if "_ontology_" in key:
+                continue
+            
+            # Si la clé n'est pas référencée dans le graphe → orphelin
+            if key not in graph_keys:
+                orphans.append({
+                    "key": key,
+                    "uri": obj["uri"],
+                    "size": obj["size"],
+                    "last_modified": obj["last_modified"]
+                })
+        
+        # 5. Construire le rapport
+        def _human_size(size_bytes):
+            """Convertit des bytes en taille lisible."""
+            for unit in ['B', 'KB', 'MB', 'GB']:
+                if size_bytes < 1024:
+                    return f"{size_bytes:.1f} {unit}"
+                size_bytes /= 1024
+            return f"{size_bytes:.1f} TB"
+        
+        orphan_total_size = sum(o["size"] for o in orphans)
+        
+        report = {
+            "status": "ok",
+            "scope": memory_id or "all",
+            "memories_checked": len(memories),
+            "graph_documents": {
+                "total": check_result["total"],
+                "accessible": check_result["accessible"],
+                "missing": check_result["missing"],
+                "errors": check_result["errors"],
+                "total_size": _human_size(check_result["total_size_bytes"]),
+                "total_size_bytes": check_result["total_size_bytes"],
+                "details": check_result["details"]
+            },
+            "s3_orphans": {
+                "count": len(orphans),
+                "total_size": _human_size(orphan_total_size),
+                "total_size_bytes": orphan_total_size,
+                "files": orphans
+            },
+            "s3_total_objects": len(all_s3_objects),
+            "summary": (
+                f"✅ {check_result['accessible']}/{check_result['total']} docs accessibles"
+                + (f", ❌ {check_result['missing']} manquants" if check_result['missing'] > 0 else "")
+                + (f", ⚠️ {len(orphans)} orphelins S3 ({_human_size(orphan_total_size)})" if orphans else "")
+            )
+        }
+        
+        return report
+        
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@mcp.tool()
+async def storage_cleanup(dry_run: bool = True) -> dict:
+    """
+    Nettoie les fichiers orphelins sur S3.
+    
+    Un fichier orphelin est un objet S3 qui n'est référencé par aucun document
+    dans le graphe Neo4j (ni par une ontologie de mémoire).
+    
+    ⚠️ Par défaut, mode dry_run=True : liste les fichiers sans les supprimer.
+    Passez dry_run=False pour effectuer la suppression.
+    
+    Args:
+        dry_run: Si True, liste seulement. Si False, supprime réellement.
+        
+    Returns:
+        Liste des fichiers orphelins (supprimés ou à supprimer)
+    """
+    try:
+        # 1. Exécuter le check complet pour identifier les orphelins
+        check = await storage_check()
+        
+        if check.get("status") != "ok":
+            return check
+        
+        orphans = check.get("s3_orphans", {}).get("files", [])
+        
+        if not orphans:
+            return {
+                "status": "ok",
+                "message": "Aucun fichier orphelin trouvé. Le S3 est propre ! 🧹",
+                "orphans_found": 0,
+                "deleted": 0,
+                "dry_run": dry_run
+            }
+        
+        if dry_run:
+            return {
+                "status": "ok",
+                "message": f"🔍 {len(orphans)} fichiers orphelins trouvés ({check['s3_orphans']['total_size']}). "
+                           f"Relancez avec dry_run=false pour les supprimer.",
+                "orphans_found": len(orphans),
+                "deleted": 0,
+                "dry_run": True,
+                "files": orphans
+            }
+        
+        # 2. Supprimer les orphelins
+        keys_to_delete = [o["key"] for o in orphans]
+        delete_result = await get_storage().delete_objects(keys_to_delete)
+        
+        return {
+            "status": "ok",
+            "message": f"🗑️ {delete_result['deleted_count']} fichiers orphelins supprimés "
+                       f"({check['s3_orphans']['total_size']} libérés).",
+            "orphans_found": len(orphans),
+            "deleted": delete_result["deleted_count"],
+            "errors": delete_result["error_count"],
+            "dry_run": False,
+            "files": orphans
+        }
+        
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -1024,7 +1257,7 @@ def main():
     print("  - memory_create, memory_delete, memory_list, memory_stats", file=sys.stderr)
     print("  - memory_ingest, memory_search, memory_get_context", file=sys.stderr)
     print("  - admin_create_token, admin_list_tokens, admin_revoke_token", file=sys.stderr)
-    print("  - system_health", file=sys.stderr)
+    print("  - storage_check, storage_cleanup, system_health", file=sys.stderr)
     print("=" * 70, file=sys.stderr)
     
     # Lancer le serveur
