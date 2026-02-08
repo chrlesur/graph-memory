@@ -367,12 +367,21 @@ extraction_rules:
 
   # Instructions supplémentaires
   special_instructions: |
+    ⚠️ ARTICLES ET CLAUSES — EXHAUSTIVITÉ OBLIGATOIRE:
+    - Extrais CHAQUE article du document (Article 1, Article 2, ..., Article 23, etc.) comme entité Clause
+    - N'en omet AUCUN, même les articles courts ou de portée limitée
+    - Extrais aussi les sous-articles (ex: Article 23.2)
+    - Chaque article doit avoir un nom explicite incluant son numéro ET son titre
+    - Exemple: "Article 23.2 – Plan de réversibilité"
+    
+    Autres règles:
     - Extrais TOUJOURS les montants avec leur devise et période (HT/TTC, /mois, /an)
     - Extrais TOUJOURS les durées avec leur unité (jours, mois, années)
     - Identifie TOUS les signataires et leur fonction
     - Identifie le type exact de contrat (Cadre, Avenant, NDA, CGV, etc.)
     - Les noms de clauses doivent être explicites
     - Lie les montants aux prestations concernées
+    - Extrais TOUTES les annexes mentionnées (Annexe 1, Annexe 2, etc.)
 
 # =============================================================================
 # Exemples d'extraction

@@ -77,6 +77,7 @@ class ExtractorService:
         self._model = settings.llmaas_model
         self._max_tokens = settings.llmaas_max_tokens
         self._temperature = settings.llmaas_temperature
+        self._max_text_length = settings.extraction_max_text_length
     
     @retry(
         stop=stop_after_attempt(3),
@@ -86,21 +87,19 @@ class ExtractorService:
     async def extract_from_text(
         self,
         text: str,
-        max_text_length: int = 50000
     ) -> ExtractionResult:
         """
         Extrait les entités et relations d'un texte.
         
         Args:
             text: Texte à analyser
-            max_text_length: Longueur max du texte (tronqué sinon)
             
         Returns:
             ExtractionResult avec entités, relations, résumé
         """
-        # Tronquer si nécessaire
-        if len(text) > max_text_length:
-            text = text[:max_text_length] + "\n\n[Document tronqué...]"
+        # Tronquer si nécessaire (limite depuis config EXTRACTION_MAX_TEXT_LENGTH)
+        if len(text) > self._max_text_length:
+            text = text[:self._max_text_length] + "\n\n[Document tronqué...]"
         
         prompt = EXTRACTION_PROMPT.format(document_text=text)
         
@@ -269,7 +268,6 @@ class ExtractorService:
         self,
         text: str,
         ontology_name: str = "default",
-        max_text_length: int = 50000
     ) -> ExtractionResult:
         """
         Extrait les entités et relations d'un texte en utilisant une ontologie.
@@ -277,7 +275,6 @@ class ExtractorService:
         Args:
             text: Texte à analyser
             ontology_name: Nom de l'ontologie à utiliser (ex: "legal", "cloud")
-            max_text_length: Longueur max du texte (tronqué sinon)
             
         Returns:
             ExtractionResult avec entités, relations, résumé
@@ -294,9 +291,9 @@ class ExtractorService:
                 f"Chaque mémoire DOIT avoir une ontologie valide."
             )
         
-        # Tronquer si nécessaire
-        if len(text) > max_text_length:
-            text = text[:max_text_length] + "\n\n[Document tronqué...]"
+        # Tronquer si nécessaire (limite depuis config EXTRACTION_MAX_TEXT_LENGTH)
+        if len(text) > self._max_text_length:
+            text = text[:self._max_text_length] + "\n\n[Document tronqué...]"
         
         # Construire le prompt avec l'ontologie
         prompt = ontology.build_prompt(text)
@@ -394,7 +391,7 @@ class ExtractorService:
                     }
                 ],
                 temperature=0.3,  # Plus déterministe pour les réponses factuelles
-                max_tokens=1000
+                max_tokens=self._max_tokens
             )
             
             return response.choices[0].message.content or "Pas de réponse générée."

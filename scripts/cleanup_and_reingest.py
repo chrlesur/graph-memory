@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dotenv import load_dotenv
 load_dotenv()
 
-from scripts.mcp_cli import MCPClient
+from scripts.cli.client import MCPClient
 
 BASE_URL = os.getenv("MCP_SERVER_URL", "http://localhost:8002")
 TOKEN = os.getenv("ADMIN_BOOTSTRAP_KEY", "admin_bootstrap_key_change_me")

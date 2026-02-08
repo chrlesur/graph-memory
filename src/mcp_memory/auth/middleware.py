@@ -56,6 +56,14 @@ class AuthMiddleware:
             await self.app(scope, receive, send)
             return
         
+        # Requêtes internes (localhost) : pas d'auth requise
+        # (reconnexions SSE internes, health checks, etc.)
+        client = scope.get("client", ("", 0))
+        client_ip = client[0] if client else ""
+        if client_ip in ("127.0.0.1", "::1"):
+            await self.app(scope, receive, send)
+            return
+        
         # Récupérer le header Authorization
         headers = dict(scope.get("headers", []))
         auth_header = headers.get(b"authorization", b"").decode("utf-8")

@@ -474,16 +474,16 @@ async def memory_search(
         # Recherche d'entités
         entities = await get_graph().search_entities(memory_id, search_query=query, limit=limit)
         
-        # Pour chaque entité, récupérer un peu de contexte
+        # Pour chaque entité, récupérer le contexte complet
         results = []
-        for entity in entities[:5]:  # Limiter pour performance
+        for entity in entities:
             context = await get_graph().get_entity_context(
                 memory_id, entity["name"], depth=1
             )
             results.append({
                 "entity": entity,
-                "documents": context.documents[:3],  # Max 3 docs par entité
-                "related_entities": context.related_entities[:5]
+                "documents": context.documents,
+                "related_entities": context.related_entities
             })
         
         return {
@@ -501,7 +501,8 @@ async def memory_search(
 @mcp.tool()
 async def question_answer(
     memory_id: str,
-    question: str
+    question: str,
+    limit: int = 10
 ) -> dict:
     """
     Pose une question sur une mémoire et obtient une réponse basée sur le graphe.
@@ -512,13 +513,14 @@ async def question_answer(
     Args:
         memory_id: ID de la mémoire
         question: Question en langage naturel
+        limit: Nombre max d'entités à rechercher (défaut: 10)
         
     Returns:
         Réponse générée avec les entités liées
     """
     try:
         # 1. Rechercher les entités pertinentes
-        entities = await get_graph().search_entities(memory_id, search_query=question, limit=10)
+        entities = await get_graph().search_entities(memory_id, search_query=question, limit=limit)
         
         if not entities:
             return {
@@ -527,27 +529,43 @@ async def question_answer(
                 "entities": []
             }
         
-        # 2. Récupérer le contexte de chaque entité
+        # 2. Récupérer le contexte de chaque entité + documents sources
         context_parts = []
         entity_names = []
+        source_documents = {}  # doc_id -> {filename, id}
         
-        for entity in entities[:5]:  # Top 5 entités
+        for entity in entities:  # Toutes les entités trouvées
             entity_names.append(entity["name"])
             ctx = await get_graph().get_entity_context(memory_id, entity["name"], depth=1)
+            
+            # Collecter les documents sources
+            for doc in ctx.documents:
+                if isinstance(doc, dict):
+                    doc_id = doc.get('id', '')
+                    if doc_id and doc_id not in source_documents:
+                        source_documents[doc_id] = {
+                            "id": doc_id,
+                            "filename": doc.get('filename', doc_id),
+                        }
             
             # Construire une description du contexte
             ctx_text = f"- {entity['name']} ({entity.get('type', '?')})"
             if entity.get('description'):
                 ctx_text += f": {entity['description']}"
             
-            # Ajouter les relations
-            for rel in ctx.relations[:3]:
+            # Ajouter les relations (toutes)
+            for rel in ctx.relations:
                 ctx_text += f"\n  → {rel.get('type', 'RELATED_TO')}: {rel.get('description', '')}"
             
-            # Ajouter les entités liées
-            related = [r['name'] for r in ctx.related_entities[:5]]
+            # Ajouter les entités liées (toutes)
+            related = [r['name'] for r in ctx.related_entities]
             if related:
                 ctx_text += f"\n  Lié à: {', '.join(related)}"
+            
+            # Ajouter les documents sources (tous)
+            doc_names = [d.get('filename', d.get('id', '?')) if isinstance(d, dict) else str(d) for d in ctx.documents]
+            if doc_names:
+                ctx_text += f"\n  Sources: {', '.join(doc_names)}"
             
             context_parts.append(ctx_text)
         
@@ -572,6 +590,7 @@ Si le contexte ne permet pas de répondre complètement, dis-le clairement.
             "status": "ok",
             "answer": answer,
             "entities": entity_names,
+            "source_documents": list(source_documents.values()),
             "context_used": context
         }
         
