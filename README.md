@@ -1,182 +1,472 @@
-# 🧠 MCP Memory Service
+# 🧠 Graph Memory — MCP Knowledge Graph Service
 
-Service de mémoire persistante basé sur un graphe de connaissances pour les agents IA, implémenté avec le protocole **MCP (Model Context Protocol)**.
+Service de mémoire persistante basé sur un **graphe de connaissances** pour les agents IA, implémenté avec le protocole [MCP (Model Context Protocol)](https://modelcontextprotocol.io/).
+
+Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
+
+---
+
+## 📋 Table des matières
+
+- [Concept](#-concept)
+- [Fonctionnalités](#-fonctionnalités)
+- [Architecture](#-architecture)
+- [Prérequis](#-prérequis)
+- [Installation](#-installation)
+- [Configuration](#-configuration)
+- [Démarrage](#-démarrage)
+- [Interface Web](#-interface-web)
+- [CLI (Command Line Interface)](#-cli-command-line-interface)
+- [Outils MCP](#-outils-mcp)
+- [Ontologies](#-ontologies)
+- [API REST](#-api-rest)
+- [Intégration MCP](#-intégration-mcp)
+- [Sécurité](#-sécurité)
+- [Structure du projet](#-structure-du-projet)
+- [Dépannage](#-dépannage)
+- [Licence](#-licence)
+
+---
 
 ## 🎯 Concept
 
-L'approche **Graph-First** : au lieu d'utiliser du RAG vectoriel classique, ce service extrait des entités et relations structurées pour construire un graphe de connaissances interrogeable.
+L'approche **Graph-First** : au lieu du RAG vectoriel classique (embedding → similitude cosinus), ce service extrait des **entités** et **relations** structurées via un LLM pour construire un graphe de connaissances interrogeable.
 
 ```
-Document → LLM Extraction → Entités + Relations → Neo4j Graph
-                                                     ↓
-Query → Graph Search → Contexte structuré → Réponse précise
+Document (PDF, DOCX, MD, TXT, HTML, CSV)
+    │
+    ▼ Upload S3 + Extraction LLM guidée par ontologie
+    │
+    ▼ Entités + Relations typées + Documents sources
+    │
+    ▼ Graphe Neo4j (namespace isolé par mémoire)
+    │
+Question en langage naturel
+    │
+    ▼ Recherche dans le graphe → Contexte structuré → LLM → Réponse avec sources
 ```
+
+### Pourquoi un graphe plutôt que du RAG vectoriel ?
+
+| Critère | RAG vectoriel | Graph Memory |
+|---------|---------------|--------------|
+| **Précision** | Similitude sémantique approximative | Relations explicites et typées |
+| **Traçabilité** | Chunks anonymes | Entités nommées + documents sources |
+| **Exploration** | Recherche unidirectionnelle | Navigation multi-hop dans le graphe |
+| **Visualisation** | Difficile | Graphe interactif natif |
+| **Multi-documents** | Mélange de chunks | Relations inter-documents explicites |
+
+---
 
 ## ✨ Fonctionnalités
 
-- **Extraction intelligente** via LLMaaS Cloud Temple (gpt-oss:120b)
-- **Stockage S3** sur Dell ECS Cloud Temple
-- **Graphe Neo4j** pour les entités et relations
-- **API MCP** via HTTP/SSE avec authentification Bearer
-- **Multi-tenant** : isolation par mémoire (namespace)
+### Extraction intelligente
+- Extraction d'entités et relations guidée par **ontologie** (types d'entités/relations prédéfinis)
+- Support des formats : **PDF, DOCX, Markdown, TXT, HTML, CSV**
+- Déduplication par hash SHA-256 (avec option `--force` pour ré-ingérer)
+- Instructions anti-hub pour éviter les entités trop génériques
+
+### Graphe de connaissances
+- Stockage Neo4j avec **isolation par namespace** (multi-tenant)
+- Relations typées (pas de `RELATED_TO` générique avec l'ontologie `legal`)
+- Entités liées à leurs documents sources (`MENTIONS`)
+- Recherche par tokens avec stop words français
+
+### Question/Réponse
+- Question en langage naturel → recherche dans le graphe → contexte enrichi → réponse LLM
+- **Citation des documents sources** dans les réponses (chaque entité inclut son document d'origine)
+- Mode Focus : isolation du sous-graphe lié à une question
+
+### Interface web interactive
+- Visualisation du graphe avec [vis-network](https://visjs.github.io/vis-network/docs/network/)
+- Filtrage avancé par types d'entités, types de relations, documents
+- Panneau ASK intégré avec rendu Markdown (tableaux, listes, code)
+- Mode Focus Question : isole le sous-graphe pertinent après une question
+
+### CLI complète
+- **Mode Click** (scriptable) : `python scripts/mcp_cli.py memory list`
+- **Mode Shell** (interactif) : autocomplétion, historique, commandes contextuelles
+
+### Sécurité
+- Authentification Bearer Token pour toutes les requêtes MCP
+- Clé bootstrap pour le premier token
+- Isolation des données par mémoire (namespace Neo4j)
+
+---
 
 ## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    MCP Memory Service                        │
-│                    (localhost:8002)                          │
-├─────────────────────────────────────────────────────────────┤
-│  FastMCP Server + Auth Middleware                           │
-│  ├── memory_create/delete/list/stats                        │
-│  ├── memory_ingest (S3 + LLM + Neo4j)                       │
-│  ├── memory_search (graph-first)                            │
-│  └── memory_get_context                                     │
-├─────────────────────────────────────────────────────────────┤
-│                    Services Backend                          │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
-│  │   S3 Dell   │  │  LLMaaS CT  │  │   Neo4j     │         │
-│  │    ECS      │  │ gpt-oss:120b│  │   5.x       │         │
-│  └─────────────┘  └─────────────┘  └─────────────┘         │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                         Clients MCP                                   │
+│   (Claude Desktop, Cline, QuoteFlow, Vela, CLI, Interface Web)       │
+└──────────────────────────────┬───────────────────────────────────────┘
+                               │ HTTP/SSE + Bearer Token
+                               ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                    Graph Memory Service (Port 8002)                    │
+│  ┌────────────────────────────────────────────────────────────────┐  │
+│  │  Middleware Layer                                               │  │
+│  │  • StaticFilesMiddleware (web UI + API REST)                   │  │
+│  │  • LoggingMiddleware (debug)                                   │  │
+│  │  • AuthMiddleware (Bearer Token)                               │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+│  ┌────────────────────────────────────────────────────────────────┐  │
+│  │  MCP Tools (14 outils)                                         │  │
+│  │  • memory_create/delete/list/stats                             │  │
+│  │  • memory_ingest/search/get_context                            │  │
+│  │  • question_answer                                             │  │
+│  │  • document_delete                                             │  │
+│  │  • storage_check/storage_cleanup                               │  │
+│  │  • admin_create_token/list_tokens/revoke_token                 │  │
+│  │  • system_health                                               │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+│  ┌────────────────────────────────────────────────────────────────┐  │
+│  │  Core Services                                                  │  │
+│  │  • GraphService (Neo4j)    • StorageService (S3)               │  │
+│  │  • ExtractorService (LLM)  • TokenManager (Auth)               │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────┬───────────────────────────────────────┘
+                               │
+        ┌──────────────────────┼──────────────────────┐
+        ▼                      ▼                      ▼
+┌───────────────┐    ┌───────────────┐    ┌───────────────┐
+│    Neo4j 5    │    │   S3 (Dell    │    │   LLMaaS      │
+│  (Graphe)     │    │   ECS, AWS…)  │    │  (OpenAI API) │
+└───────────────┘    └───────────────┘    └───────────────┘
 ```
 
-## 🚀 Démarrage Rapide
+---
 
-### Prérequis
+## 📦 Prérequis
 
-- Docker & Docker Compose
-- Python 3.11+
-- Clés API Cloud Temple (S3 + LLMaaS)
+- **Docker** & **Docker Compose** (v2+)
+- **Python 3.11+** (pour la CLI, optionnel)
+- Un **stockage S3** compatible (Cloud Temple, AWS, MinIO, Dell ECS)
+- Un **LLM** compatible OpenAI API (Cloud Temple LLMaaS, OpenAI, etc.)
 
-### Configuration
+---
+
+## 🚀 Installation
 
 ```bash
-# Copier le fichier d'exemple
+# Cloner le dépôt
+git clone https://github.com/chrlesur/graph-memory.git
+cd graph-memory
+
+# Copier la configuration
 cp .env.example .env
-
-# Éditer avec vos clés
-nano .env
 ```
 
-Variables requises :
+---
+
+## ⚙️ Configuration
+
+Éditez le fichier `.env` avec vos valeurs. Toutes les variables sont documentées dans `.env.example`.
+
+### Variables obligatoires
+
+| Variable | Description |
+|----------|-------------|
+| `S3_ENDPOINT_URL` | URL de l'endpoint S3 |
+| `S3_ACCESS_KEY_ID` | Clé d'accès S3 |
+| `S3_SECRET_ACCESS_KEY` | Secret S3 |
+| `S3_BUCKET_NAME` | Nom du bucket |
+| `LLMAAS_API_URL` | URL de l'API LLM (compatible OpenAI) |
+| `LLMAAS_API_KEY` | Clé d'API LLM |
+| `NEO4J_PASSWORD` | Mot de passe Neo4j |
+| `ADMIN_BOOTSTRAP_KEY` | Clé pour créer le premier token |
+
+### Variables optionnelles (avec valeurs par défaut)
+
+| Variable | Défaut | Description |
+|----------|--------|-------------|
+| `LLMAAS_MODEL` | `gpt-oss:120b` | Modèle LLM |
+| `LLMAAS_MAX_TOKENS` | `60000` | Max tokens par réponse |
+| `LLMAAS_TEMPERATURE` | `0.1` | Température (bas = déterministe) |
+| `EXTRACTION_MAX_TEXT_LENGTH` | `950000` | Max caractères envoyés au LLM |
+| `MCP_SERVER_PORT` | `8002` | Port d'écoute |
+| `MCP_SERVER_DEBUG` | `false` | Logs détaillés |
+| `MAX_DOCUMENT_SIZE_MB` | `50` | Taille max documents |
+
+Voir `.env.example` pour la liste complète.
+
+---
+
+## ▶️ Démarrage
+
 ```bash
-# S3 Cloud Temple
-S3_ACCESS_KEY_ID=votre_access_key
-S3_SECRET_ACCESS_KEY=votre_secret_key
-
-# LLMaaS Cloud Temple
-LLMAAS_API_KEY=votre_api_key
-
-# Neo4j
-NEO4J_PASSWORD=votre_password
-
-# Auth
-ADMIN_BOOTSTRAP_KEY=votre_clé_admin
-```
-
-### Lancement
-
-```bash
-# Démarrer les services
+# Démarrer les services (Neo4j + Graph Memory)
 docker compose up -d
 
 # Vérifier le statut
 docker compose ps
 
+# Vérifier la santé
+curl http://localhost:8002/health
+
 # Voir les logs
-docker compose logs mcp-memory --tail 50
+docker compose logs mcp-memory -f --tail 50
 ```
 
-## 🧪 Tests
+### Ports exposés
+
+| Service | Port | Description |
+|---------|------|-------------|
+| Graph Memory | `8002` | API MCP (SSE) + Interface Web + API REST |
+| Neo4j Browser | `7475` | Interface d'administration Neo4j |
+| Neo4j Bolt | `7688` | Protocole Bolt (requêtes Cypher) |
+
+---
+
+## 🌐 Interface Web
+
+Accessible à : **http://localhost:8002/graph**
+
+### Fonctionnalités
+
+- **Sélecteur de mémoire** : choisissez une mémoire et chargez son graphe
+- **Graphe interactif** : zoom, drag, clic sur les nœuds pour voir les détails
+- **Filtrage avancé** (sidebar gauche) :
+  - 🏷️ **Types d'entités** : checkboxes avec pastilles couleur, compteurs
+  - 🔗 **Types de relations** : checkboxes avec barres couleur
+  - 📄 **Documents** : masquer/afficher par document source
+  - Actions batch : Tous / Aucun / Inverser pour chaque filtre
+- **Panneau ASK** (💬) : posez une question en langage naturel
+  - Réponse LLM avec citations des documents sources
+  - Rendu Markdown complet (tableaux, listes, code)
+  - Entités cliquables → focus sur le nœud dans le graphe
+- **Mode Focus** (🔬) : isole le sous-graphe lié aux entités de la réponse
+- **Modale paramètres** (⚙️) : ajustez la physique du graphe (distance, répulsion, taille)
+- **Recherche locale** : filtrez les entités par texte dans la sidebar
+- **Bouton Fit** (🔍) : recentre la vue sur tout le graphe
+
+---
+
+## 💻 CLI (Command Line Interface)
+
+### Installation des dépendances CLI
 
 ```bash
-# Test de santé (connexions services)
-python scripts/test_health.py
-
-# Test workflow complet (ingestion + recherche)
-python scripts/test_memory_workflow.py --token admin_bootstrap_key_change_me
-
-# Test qualité Q/R (5 questions sur un contrat)
-python scripts/test_graph_qa.py
+pip install httpx httpx-sse click rich prompt_toolkit
 ```
 
-### Résultats Attendus
+### Mode Click (scriptable)
 
-- **test_memory_workflow.py** : 7/7 tests OK
-- **test_graph_qa.py** : 5/5 = 100% de réussite
+```bash
+# Point d'entrée
+python scripts/mcp_cli.py [COMMANDE] [OPTIONS]
 
-## 📚 Outils MCP Disponibles
-
-| Outil | Description |
-|-------|-------------|
-| `memory_create` | Crée une nouvelle mémoire (namespace) |
-| `memory_delete` | Supprime une mémoire |
-| `memory_list` | Liste les mémoires disponibles |
-| `memory_stats` | Statistiques (docs, entités, relations) |
-| `memory_ingest` | Ingère un document (S3 + extraction + graphe) |
-| `memory_search` | Recherche dans le graphe |
-| `memory_get_context` | Contexte complet d'une entité |
-| `admin_create_token` | Crée un token d'accès |
-| `admin_list_tokens` | Liste les tokens |
-| `admin_revoke_token` | Révoque un token |
-| `system_health` | État de santé des services |
-
-## 📁 Structure du Projet
-
-```
-graph-memory/
-├── src/mcp_memory/
-│   ├── server.py           # Serveur MCP principal
-│   ├── config.py           # Configuration centralisée
-│   ├── core/
-│   │   ├── extractor.py    # Extraction LLM
-│   │   ├── graph.py        # Service Neo4j
-│   │   ├── storage.py      # Service S3
-│   │   └── models.py       # Modèles de données
-│   └── auth/
-│       ├── middleware.py   # Auth Bearer Token
-│       └── token_manager.py
-├── scripts/
-│   ├── test_health.py
-│   ├── test_auth.py
-│   ├── test_s3.py
-│   ├── test_memory_workflow.py
-│   └── test_graph_qa.py
-├── memory-bank/            # Documentation projet
-├── DESIGN/                 # Specs techniques
-├── docker-compose.yml
-├── Dockerfile
-├── requirements.txt
-└── .env.example
+# Exemples
+python scripts/mcp_cli.py health
+python scripts/mcp_cli.py memory list
+python scripts/mcp_cli.py memory create JURIDIQUE -n "Corpus Juridique" -d "Documents contractuels" -o legal
+python scripts/mcp_cli.py document ingest JURIDIQUE /path/to/contrat.docx
+python scripts/mcp_cli.py ask JURIDIQUE "Quelles sont les conditions de résiliation ?"
+python scripts/mcp_cli.py memory entities JURIDIQUE
+python scripts/mcp_cli.py memory relations JURIDIQUE -t DEFINES
+python scripts/mcp_cli.py ontologies
+python scripts/mcp_cli.py storage check JURIDIQUE
 ```
 
-## ⚙️ Configuration Avancée
+### Mode Shell (interactif)
 
-### Limite de Tokens LLM
+```bash
+python scripts/mcp_cli.py shell
 
-Le modèle `gpt-oss:120b` fait du "chain-of-thought reasoning" qui consomme beaucoup de tokens. Configuration recommandée :
-
-```python
-# config.py
-llmaas_max_tokens: int = 60000  # IMPORTANT
+# Dans le shell :
+mcp> list                          # Lister les mémoires
+mcp> use JURIDIQUE                 # Sélectionner une mémoire
+mcp[JURIDIQUE]> info               # Statistiques
+mcp[JURIDIQUE]> docs               # Lister les documents
+mcp[JURIDIQUE]> ingest /path/to/doc.pdf  # Ingérer un document
+mcp[JURIDIQUE]> entities           # Entités par type
+mcp[JURIDIQUE]> entity "Cloud Temple"    # Détail d'une entité
+mcp[JURIDIQUE]> relations DEFINES  # Relations par type
+mcp[JURIDIQUE]> ask Quelles sont les obligations du client ?
+mcp[JURIDIQUE]> graph              # Graphe texte dans le terminal
+mcp[JURIDIQUE]> limit 20           # Changer la limite de résultats
+mcp> help                          # Aide
+mcp> exit                          # Quitter
 ```
 
-### Timeouts
+### Tableau complet des commandes
 
-```python
-extraction_timeout_seconds: int = 120
-s3_upload_timeout_seconds: int = 60
-neo4j_query_timeout_seconds: int = 30
+| Fonctionnalité | CLI Click | Shell interactif |
+|---|---|---|
+| État serveur | `health` | `health` |
+| Lister mémoires | `memory list` | `list` |
+| Créer mémoire | `memory create ID -o onto` | `create ID onto` |
+| Supprimer mémoire | `memory delete ID` | `delete [ID]` |
+| Info mémoire | `memory info ID` | `info` |
+| Graphe texte | `memory graph ID` | `graph [ID]` |
+| Entités par type | `memory entities ID` | `entities` |
+| Contexte entité | `memory entity ID NAME` | `entity NAME` |
+| Relations par type | `memory relations ID [-t TYPE]` | `relations [TYPE]` |
+| Lister documents | `document list ID` | `docs` |
+| Ingérer document | `document ingest ID PATH` | `ingest PATH` |
+| Supprimer document | `document delete ID DOC` | `deldoc DOC` |
+| Question/Réponse | `ask ID "question"` | `ask question` |
+| Vérif. stockage S3 | `storage check [ID]` | `check [ID]` |
+| Nettoyage S3 | `storage cleanup [-f]` | `cleanup [--force]` |
+| Ontologies dispo. | `ontologies` | `ontologies` |
+
+---
+
+## 🔧 Outils MCP
+
+14 outils exposés via le protocole MCP (HTTP/SSE) :
+
+### Gestion des mémoires
+
+| Outil | Paramètres | Description |
+|-------|------------|-------------|
+| `memory_create` | `memory_id`, `name`, `description`, `ontology` | Crée une mémoire avec ontologie |
+| `memory_delete` | `memory_id` | Supprime une mémoire (cascade: docs + entités + S3) |
+| `memory_list` | — | Liste toutes les mémoires |
+| `memory_stats` | `memory_id` | Statistiques (docs, entités, relations, types) |
+
+### Documents et extraction
+
+| Outil | Paramètres | Description |
+|-------|------------|-------------|
+| `memory_ingest` | `memory_id`, `content_base64`, `filename`, `force` | Ingère un document (S3 + extraction LLM + graphe) |
+| `document_delete` | `memory_id`, `filename` | Supprime un document et ses entités orphelines |
+
+### Recherche et Q&A
+
+| Outil | Paramètres | Description |
+|-------|------------|-------------|
+| `memory_search` | `memory_id`, `query`, `limit` | Recherche d'entités dans le graphe |
+| `memory_get_context` | `memory_id`, `entity_name` | Contexte complet d'une entité (voisins + docs) |
+| `question_answer` | `memory_id`, `question`, `limit` | Question en langage naturel → réponse avec sources |
+
+### Stockage S3
+
+| Outil | Paramètres | Description |
+|-------|------------|-------------|
+| `storage_check` | `memory_id` (optionnel) | Vérifie cohérence graphe ↔ S3 |
+| `storage_cleanup` | `dry_run` | Nettoie les fichiers S3 orphelins |
+
+### Administration
+
+| Outil | Paramètres | Description |
+|-------|------------|-------------|
+| `admin_create_token` | `client_name`, `permissions` | Crée un token d'accès |
+| `admin_list_tokens` | — | Liste les tokens actifs |
+| `admin_revoke_token` | `token_hash` | Révoque un token |
+| `system_health` | — | État de santé des services (Neo4j, S3, LLM) |
+
+---
+
+## 📖 Ontologies
+
+Les ontologies définissent les **types d'entités** et **types de relations** que le LLM doit extraire. Elles sont obligatoires à la création d'une mémoire.
+
+### Ontologies fournies
+
+| Ontologie | Fichier | Entités | Relations | Usage |
+|-----------|---------|---------|-----------|-------|
+| `legal` | `ONTOLOGIES/legal.yaml` | 22 types | 22 types | Documents juridiques, contrats |
+| `cloud` | `ONTOLOGIES/cloud.yaml` | — | — | Infrastructure cloud |
+| `managed-services` | `ONTOLOGIES/managed-services.yaml` | — | — | Services managés |
+| `technical` | `ONTOLOGIES/technical.yaml` | — | — | Documentation technique |
+
+### Format d'une ontologie
+
+```yaml
+name: legal
+description: Ontologie pour documents juridiques
+version: "1.0"
+
+entity_types:
+  - name: Article
+    description: Article numéroté d'un contrat
+  - name: Clause
+    description: Clause contractuelle spécifique
+  - name: Partie
+    description: Partie signataire d'un contrat
+  # ...
+
+relation_types:
+  - name: DEFINES
+    description: Définit un concept ou une obligation
+  - name: APPLIES_TO
+    description: S'applique à une entité
+  - name: REFERENCES
+    description: Fait référence à un autre élément
+  # ...
+
+instructions: |
+  Instructions spécifiques pour le LLM lors de l'extraction.
 ```
 
-## 🔒 Sécurité
+### Créer une ontologie personnalisée
 
-- **Authentification** : Bearer Token requis pour toutes les requêtes
-- **Bootstrap** : Clé admin pour créer le premier token
-- **Isolation** : Chaque mémoire est un namespace séparé
+1. Créez un fichier YAML dans `ONTOLOGIES/`
+2. Définissez les types d'entités et relations pertinents
+3. Ajoutez des instructions spécifiques si nécessaire
+4. Créez la mémoire : `python scripts/mcp_cli.py memory create MON_ID -o mon_ontologie`
 
-## 📈 Exemple d'Utilisation
+---
+
+## 🌍 API REST
+
+En plus du protocole MCP (SSE), le service expose une API REST simple accessible sans authentification :
+
+| Méthode | Endpoint | Description |
+|---------|----------|-------------|
+| `GET` | `/health` | État de santé du serveur |
+| `GET` | `/graph` | Interface web de visualisation |
+| `GET` | `/api/memories` | Liste des mémoires (JSON) |
+| `GET` | `/api/graph/{memory_id}` | Graphe complet d'une mémoire (JSON) |
+| `POST` | `/api/ask` | Question/Réponse (JSON) |
+
+### Exemple : Question/Réponse via API REST
+
+```bash
+curl -X POST http://localhost:8002/api/ask \
+  -H "Content-Type: application/json" \
+  -d '{
+    "memory_id": "JURIDIQUE",
+    "question": "Quelles sont les conditions de résiliation ?",
+    "limit": 10
+  }'
+```
+
+Réponse :
+```json
+{
+  "status": "ok",
+  "answer": "## Conditions de résiliation\n\n| Condition | Détail | Source(s) |\n|...",
+  "entities": ["30 jours (préavis)", "Article 15 – Résiliation"],
+  "source_documents": [
+    {"filename": "CGA.docx", "uri": "s3://..."},
+    {"filename": "CGV.docx", "uri": "s3://..."}
+  ]
+}
+```
+
+---
+
+## 🔌 Intégration MCP
+
+### Avec Claude Desktop / Cline
+
+Ajoutez dans votre configuration MCP :
+
+```json
+{
+  "mcpServers": {
+    "graph-memory": {
+      "url": "http://localhost:8002/sse",
+      "headers": {
+        "Authorization": "Bearer VOTRE_TOKEN"
+      }
+    }
+  }
+}
+```
 
 ### Via Python (client MCP)
 
@@ -194,37 +484,178 @@ async def exemple():
             
             # Créer une mémoire
             await session.call_tool("memory_create", {
-                "memory_id": "ma-memoire",
-                "name": "Ma Mémoire",
-                "description": "Test"
+                "memory_id": "demo",
+                "name": "Démo",
+                "description": "Mémoire de démonstration",
+                "ontology": "legal"
             })
             
             # Ingérer un document
-            content = base64.b64encode(b"Contenu du document...").decode()
+            with open("contrat.pdf", "rb") as f:
+                content = base64.b64encode(f.read()).decode()
+            
             await session.call_tool("memory_ingest", {
-                "memory_id": "ma-memoire",
+                "memory_id": "demo",
                 "content_base64": content,
-                "filename": "document.txt"
+                "filename": "contrat.pdf"
             })
             
-            # Rechercher
-            result = await session.call_tool("memory_search", {
-                "memory_id": "ma-memoire",
-                "query": "ma recherche"
+            # Poser une question
+            result = await session.call_tool("question_answer", {
+                "memory_id": "demo",
+                "question": "Quelles sont les obligations du client ?",
+                "limit": 10
             })
+            print(result)
 ```
-
-## 🤝 Intégration
-
-Ce service est conçu pour s'intégrer avec :
-- **QuoteFlow** : Mémoire des documents juridiques
-- **Agents IA** : Contexte persistant entre sessions
-- **Applications métier** : Base de connaissances structurée
-
-## 📄 Licence
-
-Projet interne Cloud Temple.
 
 ---
 
-**Développé par Cloud Temple** | [Documentation technique](DESIGN/)
+## 🔒 Sécurité
+
+### Authentification
+
+- **Protocole MCP** (SSE) : Bearer Token obligatoire dans le header `Authorization`
+- **API REST** (`/api/*`, `/graph`, `/static/*`) : accès public (lecture seule)
+- **Requêtes internes** (localhost/127.0.0.1) : exemptées d'authentification
+- **Health check** (`/health`) : accès public
+
+### Gestion des tokens
+
+```bash
+# Créer un token (via la clé bootstrap admin)
+curl -X POST http://localhost:8002/sse \
+  -H "Authorization: Bearer ADMIN_BOOTSTRAP_KEY" \
+  # ... appel MCP admin_create_token
+
+# Ou via la CLI
+python scripts/mcp_cli.py shell
+mcp> # utiliser les commandes d'admin
+```
+
+### Bonnes pratiques
+
+1. **Changez `ADMIN_BOOTSTRAP_KEY`** en production
+2. **Changez `NEO4J_PASSWORD`** en production
+3. Ne commitez jamais le fichier `.env`
+4. Créez des tokens avec les permissions minimales nécessaires
+
+---
+
+## 📁 Structure du projet
+
+```
+graph-memory/
+├── .env.example              # Template de configuration (toutes les variables)
+├── .gitignore                # Fichiers ignorés
+├── docker-compose.yml        # Orchestration Docker (Neo4j + service)
+├── Dockerfile                # Image du service
+├── README.md                 # Ce fichier
+├── requirements.txt          # Dépendances Python
+│
+├── ONTOLOGIES/               # Ontologies d'extraction
+│   ├── legal.yaml            # Documents juridiques (22 types entités + relations)
+│   ├── cloud.yaml            # Infrastructure cloud
+│   ├── managed-services.yaml # Services managés
+│   └── technical.yaml        # Documentation technique
+│
+├── scripts/                  # CLI et utilitaires
+│   ├── mcp_cli.py            # Point d'entrée CLI (Click + Shell)
+│   ├── README.md             # Documentation CLI
+│   ├── cleanup_and_reingest.py  # Utilitaire de ré-ingestion
+│   ├── view_graph.py         # Visualisation graphe en terminal
+│   └── cli/                  # Package CLI
+│       ├── __init__.py
+│       ├── client.py         # Client HTTP/SSE vers le serveur MCP
+│       ├── commands.py       # Commandes Click (interface scriptable)
+│       ├── display.py        # Affichage Rich (tables, panels, graphe)
+│       └── shell.py          # Shell interactif prompt_toolkit
+│
+└── src/mcp_memory/           # Code source du service
+    ├── __init__.py
+    ├── server.py             # Serveur MCP principal (FastMCP + outils)
+    ├── config.py             # Configuration centralisée (pydantic-settings)
+    │
+    ├── auth/                 # Authentification
+    │   ├── __init__.py
+    │   ├── middleware.py     # Middlewares ASGI (Auth + Logging + Static + API REST)
+    │   └── token_manager.py  # CRUD tokens dans Neo4j
+    │
+    ├── core/                 # Services métier
+    │   ├── __init__.py
+    │   ├── graph.py          # Service Neo4j (requêtes Cypher)
+    │   ├── storage.py        # Service S3 (upload/download via boto3)
+    │   ├── extractor.py      # Service LLM (extraction d'entités + Q&A)
+    │   ├── ontology.py       # Chargement des ontologies YAML
+    │   └── models.py         # Modèles Pydantic (Entity, Document, Memory…)
+    │
+    ├── tools/                # Outils MCP (enregistrés dans server.py)
+    │   └── __init__.py
+    │
+    └── static/               # Interface web
+        ├── graph.html        # Page principale
+        ├── css/
+        │   └── graph.css     # Styles (thème sombre, couleurs Cloud Temple)
+        ├── js/
+        │   ├── config.js     # Configuration, couleurs, état de filtrage
+        │   ├── api.js        # Appels API REST
+        │   ├── graph.js      # Rendu vis-network + mode Focus
+        │   ├── sidebar.js    # Filtres, liste d'entités, recherche
+        │   ├── ask.js        # Panneau Question/Réponse
+        │   └── app.js        # Orchestration et initialisation
+        └── img/
+            └── logo-cloudtemple.svg
+```
+
+---
+
+## 🔍 Dépannage
+
+### Le service ne démarre pas
+
+```bash
+# Vérifier les logs
+docker compose logs mcp-memory --tail 50
+
+# Vérifier que Neo4j est prêt
+docker compose logs neo4j --tail 20
+
+# Vérifier la configuration
+docker compose exec mcp-memory env | grep -E "S3_|LLMAAS_|NEO4J_"
+```
+
+### Erreur 401 Unauthorized
+
+- Vérifiez que votre token est valide
+- Les endpoints publics (`/health`, `/graph`, `/api/*`, `/static/*`) ne nécessitent pas de token
+- Les requêtes MCP via SSE (`/sse`) nécessitent un Bearer token
+
+### Page web blanche
+
+- Accédez à `http://localhost:8002/graph` (pas `/` ni `/static/graph.html`)
+- Faites un **hard refresh** : `Cmd+Shift+R` (Mac) ou `Ctrl+Shift+R` (Windows)
+- Vérifiez les logs : `docker compose logs mcp-memory -f`
+
+### L'extraction est lente ou échoue
+
+- Vérifiez `EXTRACTION_MAX_TEXT_LENGTH` (réduisez pour les modèles avec petite fenêtre de contexte)
+- Augmentez `EXTRACTION_TIMEOUT_SECONDS` si le LLM est lent
+- Vérifiez les logs pour les erreurs LLM : `docker compose logs mcp-memory | grep "❌"`
+
+### Rebuild après modification du code
+
+```bash
+docker compose build mcp-memory && docker compose up -d mcp-memory
+```
+
+---
+
+## 📄 Licence
+
+Ce projet est distribué sous licence **Apache 2.0**. Voir le fichier [LICENSE](LICENSE) pour plus de détails.
+
+Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
+
+---
+
+*Graph Memory v0.5.0 — Février 2026*

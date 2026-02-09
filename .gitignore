@@ -67,4 +67,12 @@ tmp/
 temp/
 *.tmp
 
+# === Données métier (confidentielles) ===
 /MATIERE/
+
+# === Documents internes (design, specs) ===
+/DESIGN/
+
+# === Cline (fichiers internes de travail) ===
+/.clinerules/
+/memory-bank/
