@@ -600,6 +600,9 @@ class GraphService:
         Ex: "Cloud Temple" trouvera "Cloud Temple SAS", "Contrat Cloud Temple", etc.
         Ex: "certification" trouvera toutes les entités de type Certification
         """
+        import re
+        import unicodedata
+        
         # Mots vides français à ignorer
         STOP_WORDS = {
             'les', 'des', 'une', 'uns', 'aux', 'par', 'pour', 'dans',
@@ -608,12 +611,26 @@ class GraphService:
             'avoir', 'fait', 'faire', 'peut', 'tout', 'tous', 'cette',
             'ces', 'son', 'ses', 'leur', 'nos', 'vos', 'plus', 'moins',
             'aussi', 'très', 'bien', 'mais', 'comme', 'donc', 'car',
+            'quel', 'quelle', 'quels', 'quelles', 'contient', 'corpus',
         }
-        # Tokeniser la requête (mots individuels, sans stop words)
-        tokens = [t.strip() for t in search_query.lower().split()
-                  if len(t.strip()) > 2 and t.strip() not in STOP_WORDS]
+        
+        def _normalize(text: str) -> str:
+            """Retire accents et ponctuation pour normaliser."""
+            # Retirer la ponctuation
+            text = re.sub(r'[^\w\s]', '', text)
+            # Retirer les accents
+            nfkd = unicodedata.normalize('NFKD', text)
+            return ''.join(c for c in nfkd if not unicodedata.combining(c))
+        
+        # Tokeniser la requête (mots individuels, sans stop words, sans ponctuation)
+        raw_tokens = re.findall(r'[a-zA-ZÀ-ÿ]+', search_query.lower())
+        tokens = [_normalize(t) for t in raw_tokens
+                  if len(t) > 2 and t not in STOP_WORDS]
+        
+        print(f"🔤 [Search] Tokenisation: '{search_query}' → {tokens} (raw: {raw_tokens})", file=sys.stderr)
         
         if not tokens:
+            print(f"⚠️ [Search] Aucun token significatif → résultat vide", file=sys.stderr)
             return []
         
         async with self.session() as session:

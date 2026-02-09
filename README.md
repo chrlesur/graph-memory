@@ -653,6 +653,26 @@ docker compose build mcp-memory && docker compose up -d mcp-memory
 
 ## 📋 Changelog
 
+### v0.5.2 — 9 février 2026
+
+**Q&A — Fallback RAG-only + Tokeniser robuste + Logs décisionnels**
+
+- 🐛 **Fix tokeniser de recherche** (`graph.py`) — La ponctuation (`?`, `!`, `.`) n'était pas retirée des tokens → `"résiliation?"` ne matchait jamais dans Neo4j. Corrigé avec `re.findall(r'[a-zA-ZÀ-ÿ]+', ...)` pour extraire uniquement les mots alphabétiques.
+- 🐛 **Fix normalisation des accents** — Les tokens sont maintenant normalisés via `unicodedata.normalize('NFKD', ...)` pour que `"résiliation"` matche `"RESILIATION"` dans le graphe.
+- ✨ **Fallback RAG-only** (`server.py`) — Quand le graphe ne trouve aucune entité pertinente, le système lance désormais une **recherche vectorielle Qdrant sur tous les chunks** de la mémoire (sans filtrage par doc_ids). Auparavant, l'absence d'entités retournait immédiatement "pas d'informations pertinentes" sans interroger Qdrant.
+  - **Graph-Guided** : entités trouvées → RAG filtré par les doc_ids du graphe (précis)
+  - **RAG-only** : 0 entités → RAG sur tous les documents de la mémoire (exhaustif)
+  - "Pas d'informations" seulement si **ni le graphe ni le RAG** ne trouvent quoi que ce soit
+- ✨ **Logs décisionnels Q&A** — Chaque question génère désormais une trace complète dans les logs Docker :
+  - `🔤 [Search] Tokenisation` : mots bruts → tokens filtrés (stop words, accents)
+  - `📊 [Q&A] Graphe` : nombre d'entités trouvées + noms, ou "fallback RAG-only"
+  - `🔍 [Q&A] RAG` : mode (graph-guided/rag-only) + nombre de chunks + doc_ids filtrants
+  - `📝 [Q&A] Contexte LLM` : taille graphe (chars) + taille RAG (chars) + nombre de docs
+- 🔧 **Qdrant épinglé v1.16.2** (`docker-compose.yml`) — Image Docker épinglée à `qdrant/qdrant:v1.16.2` au lieu de `latest` pour correspondre au client Python et éviter les warnings d'incompatibilité.
+- ✨ **Stop words enrichis** — Ajout de `quel`, `quelle`, `quels`, `quelles`, `contient`, `corpus` pour des tokens plus pertinents.
+
+**Fichiers modifiés :** `graph.py`, `server.py`, `docker-compose.yml`
+
 ### v0.5.1 — 9 février 2026
 
 **Tokens — Champ email + Hash complet**
@@ -690,4 +710,4 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
 ---
 
-*Graph Memory v0.5.1 — Février 2026*
+*Graph Memory v0.5.2 — Février 2026*

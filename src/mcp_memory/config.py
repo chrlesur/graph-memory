@@ -47,6 +47,30 @@ class Settings(BaseSettings):
     extraction_max_text_length: int = 950000  # Max chars du texte envoyé au LLM (défaut ~950K)
     
     # =========================================================================
+    # Embedding (LLMaaS)
+    # =========================================================================
+    llmaas_embedding_model: str = "bge-m3:567m"
+    llmaas_embedding_dimensions: int = 1024  # Dimension des vecteurs BGE-M3
+    
+    # =========================================================================
+    # Qdrant (base vectorielle)
+    # =========================================================================
+    qdrant_url: str = "http://qdrant:6333"
+    qdrant_collection_prefix: str = "memory_"  # Préfixe pour les collections Qdrant
+    
+    # =========================================================================
+    # Chunking sémantique
+    # =========================================================================
+    chunk_size: int = 500  # Taille cible en tokens par chunk
+    chunk_overlap: int = 50  # Tokens de chevauchement entre chunks adjacents
+    
+    # =========================================================================
+    # RAG — Recherche vectorielle
+    # =========================================================================
+    rag_score_threshold: float = 0.65  # Score cosinus minimum pour un chunk (en dessous = ignoré)
+    rag_chunk_limit: int = 8  # Nombre max de chunks retournés par Qdrant
+    
+    # =========================================================================
     # Neo4j
     # =========================================================================
     neo4j_uri: str = "bolt://neo4j:7687"

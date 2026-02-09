@@ -165,6 +165,62 @@ class GraphContext(BaseModel):
 
 
 # =============================================================================
+# Chunks (pour RAG vectoriel)
+# =============================================================================
+
+class Chunk(BaseModel):
+    """
+    Fragment sémantique d'un document.
+    
+    Créé par le SemanticChunker, stocké dans Qdrant avec son embedding.
+    Chaque chunk respecte les frontières naturelles du texte :
+    sections, articles, paragraphes, phrases.
+    """
+    text: str = Field(..., description="Contenu textuel du chunk")
+    index: int = Field(..., description="Position du chunk dans le document (0-based)")
+    total_chunks: int = Field(default=0, description="Nombre total de chunks du document")
+    
+    # Métadonnées de provenance
+    doc_id: Optional[str] = Field(None, description="ID du document source")
+    memory_id: Optional[str] = Field(None, description="ID de la mémoire")
+    filename: Optional[str] = Field(None, description="Nom du fichier source")
+    
+    # Métadonnées sémantiques (détectées par le chunker)
+    section_title: Optional[str] = Field(None, description="Titre de la section englobante")
+    article_number: Optional[str] = Field(None, description="Numéro d'article (ex: '23.2')")
+    heading_hierarchy: List[str] = Field(default_factory=list, description="Hiérarchie de titres (ex: ['Titre III', 'Article 23'])")
+    
+    # Statistiques
+    char_count: int = Field(default=0, description="Nombre de caractères")
+    token_estimate: int = Field(default=0, description="Estimation du nombre de tokens")
+
+
+class ChunkResult(BaseModel):
+    """
+    Résultat d'une recherche vectorielle dans Qdrant.
+    
+    Contient le chunk retrouvé + son score de similarité.
+    """
+    chunk: Chunk
+    score: float = Field(..., ge=0.0, le=1.0, description="Score de similarité cosinus")
+    
+    # Contexte pour le prompt LLM
+    @property
+    def context_text(self) -> str:
+        """Texte formaté pour inclusion dans un prompt LLM."""
+        parts = []
+        if self.chunk.filename:
+            parts.append(f"[Source: {self.chunk.filename}")
+            if self.chunk.section_title:
+                parts.append(f" > {self.chunk.section_title}")
+            if self.chunk.article_number:
+                parts.append(f" > Art. {self.chunk.article_number}")
+            parts.append("]")
+        header = "".join(parts)
+        return f"{header}\n{self.chunk.text}" if header else self.chunk.text
+
+
+# =============================================================================
 # Tokens / Auth
 # =============================================================================
 

@@ -46,6 +46,9 @@ _graph_service = None
 _storage_service = None
 _extractor_service = None
 _token_manager = None
+_embedding_service = None
+_chunker = None
+_vector_store = None
 
 
 def get_graph():
@@ -82,6 +85,33 @@ def get_tokens():
         from .auth.token_manager import get_token_manager
         _token_manager = get_token_manager()
     return _token_manager
+
+
+def get_embedder():
+    """Lazy-load EmbeddingService."""
+    global _embedding_service
+    if _embedding_service is None:
+        from .core.embedder import get_embedding_service
+        _embedding_service = get_embedding_service()
+    return _embedding_service
+
+
+def get_chunker():
+    """Lazy-load SemanticChunker."""
+    global _chunker
+    if _chunker is None:
+        from .core.chunker import get_chunker as _get_chunker
+        _chunker = _get_chunker()
+    return _chunker
+
+
+def get_vector_store():
+    """Lazy-load VectorStoreService."""
+    global _vector_store
+    if _vector_store is None:
+        from .core.vector_store import get_vector_store as _get_vs
+        _vector_store = _get_vs()
+    return _vector_store
 
 
 # =============================================================================
@@ -184,7 +214,15 @@ async def memory_delete(memory_id: str) -> dict:
         if access_err:
             return access_err
         
-        # 1. Supprimer tous les fichiers S3 de la mémoire
+        # 1. Supprimer la collection Qdrant (couplage strict)
+        qdrant_deleted = False
+        try:
+            qdrant_deleted = await get_vector_store().delete_collection(memory_id)
+        except Exception as e:
+            print(f"❌ [Qdrant] Erreur suppression collection pour {memory_id}: {e}", file=sys.stderr)
+            raise RuntimeError(f"Impossible de supprimer la collection Qdrant (couplage strict): {e}")
+        
+        # 2. Supprimer tous les fichiers S3 de la mémoire
         s3_result = {"deleted_count": 0, "error_count": 0}
         try:
             s3_result = await get_storage().delete_prefix(f"{memory_id}/")
@@ -192,13 +230,14 @@ async def memory_delete(memory_id: str) -> dict:
         except Exception as e:
             print(f"⚠️ [S3] Erreur nettoyage S3 pour {memory_id}: {e}", file=sys.stderr)
         
-        # 2. Supprimer du graphe Neo4j
+        # 3. Supprimer du graphe Neo4j
         deleted = await get_graph().delete_memory(memory_id)
         
         if deleted:
             return {
                 "status": "deleted",
                 "memory_id": memory_id,
+                "qdrant_collection_deleted": qdrant_deleted,
                 "s3_files_deleted": s3_result.get("deleted_count", 0),
                 "s3_errors": s3_result.get("error_count", 0)
             }
@@ -374,6 +413,44 @@ async def memory_ingest(
             extraction=extraction
         )
         
+        # === RAG Vectoriel : Chunking + Embedding + Qdrant (synchrone strict) ===
+        chunks_stored = 0
+        try:
+            # S'assurer que la collection Qdrant existe
+            await get_vector_store().ensure_collection(memory_id)
+            
+            # Si force, supprimer les anciens chunks Qdrant
+            if existing and force:
+                await get_vector_store().delete_document_chunks(memory_id, existing.id)
+            
+            # Chunker le texte
+            chunks = get_chunker().chunk_document(text, filename)
+            
+            if chunks:
+                # Enrichir chaque chunk avec doc_id et memory_id
+                for chunk in chunks:
+                    chunk.doc_id = doc_id
+                    chunk.memory_id = memory_id
+                
+                # Générer les embeddings (batch)
+                chunk_texts = [c.text for c in chunks]
+                embeddings = await get_embedder().embed_texts(chunk_texts)
+                
+                # Stocker dans Qdrant
+                chunks_stored = await get_vector_store().store_chunks(
+                    memory_id=memory_id,
+                    doc_id=doc_id,
+                    filename=filename,
+                    chunks=chunks,
+                    embeddings=embeddings
+                )
+                
+                print(f"✅ [Ingest] RAG: {chunks_stored} chunks vectorisés pour {filename}", file=sys.stderr)
+        except Exception as e:
+            # Couplage strict : si Qdrant échoue, on fait échouer l'ingestion
+            print(f"❌ [Ingest] Erreur RAG vectoriel: {e}", file=sys.stderr)
+            raise RuntimeError(f"Échec vectorisation Qdrant (couplage strict): {e}")
+        
         # Compter les types de relations
         from collections import Counter
         relation_types = Counter(r.type for r in extraction.relations)
@@ -393,6 +470,7 @@ async def memory_ingest(
             "relations_merged": graph_result.get("relations_merged", 0),
             "entity_types": dict(entity_types),
             "relation_types": dict(relation_types),
+            "chunks_stored": chunks_stored,
             "summary": extraction.summary,
             "key_topics": extraction.key_topics
         }
@@ -566,25 +644,25 @@ async def question_answer(
         if access_err:
             return access_err
         
-        # 1. Rechercher les entités pertinentes
+        # 1. Rechercher les entités pertinentes dans le graphe
+        print(f"🔎 [Q&A] Recherche graphe: memory={memory_id}, question='{question}', limit={limit}", file=sys.stderr)
         entities = await get_graph().search_entities(memory_id, search_query=question, limit=limit)
         
-        if not entities:
-            return {
-                "status": "ok",
-                "answer": "Je n'ai pas trouvé d'informations pertinentes dans cette mémoire pour répondre à votre question.",
-                "entities": []
-            }
+        if entities:
+            entity_summary = ", ".join(f"{e['name']} ({e.get('type','?')})" for e in entities)
+            print(f"📊 [Q&A] Graphe: {len(entities)} entités trouvées → {entity_summary}", file=sys.stderr)
+        else:
+            print(f"📊 [Q&A] Graphe: 0 entités trouvées → fallback RAG-only", file=sys.stderr)
         
         # 2. Récupérer le contexte de chaque entité + documents sources
         context_parts = []
         entity_names = []
         source_documents = {}  # doc_id -> {filename, id}
-        
+
         for entity in entities:
             entity_names.append(entity["name"])
             ctx = await get_graph().get_entity_context(memory_id, entity["name"], depth=1)
-            
+
             # Collecter les documents sources et les associer à l'entité
             entity_doc_names = []
             for doc in ctx.documents:
@@ -598,42 +676,119 @@ async def question_answer(
                                 "filename": doc_filename,
                             }
                         entity_doc_names.append(doc_filename)
-            
+
             # Construire le contexte texte AVEC le document source
             doc_ref = f" [Source: {', '.join(entity_doc_names)}]" if entity_doc_names else ""
             ctx_text = f"- {entity['name']} ({entity.get('type', '?')}){doc_ref}"
             if entity.get('description'):
                 ctx_text += f": {entity['description']}"
-            
+
             for rel in ctx.relations:
                 ctx_text += f"\n  → {rel.get('type', 'RELATED_TO')}: {rel.get('description', '')}"
-            
+
             related = [r['name'] for r in ctx.related_entities]
             if related:
                 ctx_text += f"\n  Lié à: {', '.join(related)}"
-            
+
             context_parts.append(ctx_text)
+
+        # 3. === RAG vectoriel : Graph-Guided si entités trouvées, sinon RAG-only ===
+        rag_context_parts = []
+        rag_chunks_used = 0
+        rag_mode = "graph-guided" if entities else "rag-only"
+        try:
+            # Collecter les doc_ids identifiés par le graphe (vide si aucune entité)
+            graph_doc_ids = list(source_documents.keys())
+
+            # Vectoriser la question
+            query_embedding = await get_embedder().embed_query(question)
+
+            # Recherche Qdrant :
+            # - Graph-Guided : filtrée par les documents identifiés par le graphe
+            # - RAG-only : recherche sur TOUS les chunks de la mémoire (fallback)
+            score_threshold = settings.rag_score_threshold
+            chunk_limit = settings.rag_chunk_limit
+            
+            chunk_results = await get_vector_store().search(
+                memory_id=memory_id,
+                query_embedding=query_embedding,
+                doc_ids=graph_doc_ids if graph_doc_ids else None,
+                limit=chunk_limit
+            )
+
+            # Filtrer par seuil de score (en dessous = non pertinent)
+            total_before = len(chunk_results)
+            chunk_results = [cr for cr in chunk_results if cr.score >= score_threshold]
+            filtered_out = total_before - len(chunk_results)
+
+            # Construire le contexte RAG (chunks pertinents)
+            for cr in chunk_results:
+                rag_context_parts.append(cr.context_text)
+                rag_chunks_used += 1
+                # Ajouter les docs trouvés par RAG au source_documents
+                if cr.chunk.doc_id and cr.chunk.doc_id not in source_documents:
+                    source_documents[cr.chunk.doc_id] = {
+                        "id": cr.chunk.doc_id,
+                        "filename": cr.chunk.filename or "?",
+                    }
+
+            print(f"🔍 [Q&A] RAG ({rag_mode}): {rag_chunks_used} chunks retenus"
+                  f" (seuil={score_threshold}, {filtered_out} filtrés sur {total_before})"
+                  f"{f' | graph-guided: {len(graph_doc_ids)} docs' if graph_doc_ids else ' | tous documents'}", 
+                  file=sys.stderr)
+            
+            # Log détaillé : score + section + aperçu texte de chaque chunk
+            for i, cr in enumerate(chunk_results):
+                section = cr.chunk.section_title or cr.chunk.article_number or "—"
+                preview = cr.chunk.text[:80].replace('\n', ' ').strip()
+                print(f"   📎 [{i+1}] score={cr.score:.4f} ✅ | {section} | \"{preview}...\"", file=sys.stderr)
+
+        except Exception as e:
+            print(f"⚠️ [Q&A] Erreur RAG vectoriel: {e}", file=sys.stderr)
+            # On continue avec le contexte graphe seul
+
+        # Si ni le graphe ni le RAG n'ont trouvé quoi que ce soit → pas de contexte
+        if not entities and rag_chunks_used == 0:
+            return {
+                "status": "ok",
+                "answer": "Je n'ai pas trouvé d'informations pertinentes dans cette mémoire pour répondre à votre question.",
+                "entities": [],
+                "rag_chunks_used": 0,
+                "source_documents": []
+            }
         
-        # 3. Construire la liste des documents pour le prompt
+        # 4. Construire la liste des documents pour le prompt
         doc_list = "\n".join(
             f"  - {doc['filename']}" for doc in source_documents.values()
         )
         
-        # 4. Générer la réponse avec le LLM
-        context = "\n".join(context_parts)
+        # 5. Assembler le contexte final (graphe + RAG)
+        graph_context = "\n".join(context_parts)
+        rag_context = "\n\n".join(rag_context_parts) if rag_context_parts else ""
         
-        prompt = f"""Tu es un assistant expert qui répond à des questions basées sur un graphe de connaissances multi-documents.
+        # 6. Générer la réponse avec le LLM
+        graph_ctx_len = len(graph_context) if graph_context else 0
+        rag_ctx_len = len(rag_context) if rag_context else 0
+        doc_count = len(source_documents)
+        print(f"📝 [Q&A] Contexte LLM: graphe={graph_ctx_len} chars, RAG={rag_ctx_len} chars, docs={doc_count}", file=sys.stderr)
+        
+        prompt = f"""Tu es un assistant expert qui répond à des questions basées sur un graphe de connaissances et des extraits de documents.
 
 Documents sources disponibles :
 {doc_list}
 
-Contexte extrait du graphe (chaque entité indique son document source entre crochets) :
-{context}
+=== CONTEXTE 1 : Graphe de connaissances (entités et relations) ===
+{graph_context}
+
+=== CONTEXTE 2 : Extraits de documents pertinents (RAG vectoriel) ===
+{rag_context if rag_context else "(aucun extrait supplémentaire)"}
 
 Question de l'utilisateur : {question}
 
 CONSIGNES :
-- Réponds de manière concise et précise en te basant UNIQUEMENT sur le contexte fourni.
+- Réponds de manière concise et précise en te basant UNIQUEMENT sur les contextes fournis.
+- Privilégie les extraits de documents (CONTEXTE 2) pour les détails factuels et les citations.
+- Utilise le graphe (CONTEXTE 1) pour la vue d'ensemble et les relations entre concepts.
 - Cite systématiquement le document source quand tu affirmes quelque chose (ex: "Selon les CGA, …", "L'article X de la CGV prévoit que…").
 - Si une information provient de plusieurs documents, précise lesquels.
 - Si le contexte ne permet pas de répondre complètement, dis-le clairement.
@@ -646,8 +801,9 @@ CONSIGNES :
             "status": "ok",
             "answer": answer,
             "entities": entity_names,
+            "rag_chunks_used": rag_chunks_used,
             "source_documents": list(source_documents.values()),
-            "context_used": context
+            "context_used": graph_context
         }
         
     except Exception as e:
@@ -1067,6 +1223,14 @@ async def document_delete(memory_id: str, document_id: str) -> dict:
             except Exception as e:
                 print(f"⚠️ [S3] Erreur suppression S3 pour {doc_info['uri']}: {e}", file=sys.stderr)
         
+        # 2b. Supprimer les chunks Qdrant (couplage strict)
+        qdrant_chunks_deleted = 0
+        try:
+            qdrant_chunks_deleted = await get_vector_store().delete_document_chunks(memory_id, document_id)
+        except Exception as e:
+            print(f"❌ [Qdrant] Erreur suppression chunks pour doc {document_id}: {e}", file=sys.stderr)
+            raise RuntimeError(f"Impossible de supprimer les chunks Qdrant (couplage strict): {e}")
+        
         # 3. Supprimer du graphe Neo4j
         result = await get_graph().delete_document(memory_id, document_id)
         
@@ -1076,6 +1240,7 @@ async def document_delete(memory_id: str, document_id: str) -> dict:
                 "document_id": document_id,
                 "relations_deleted": result.get("relations_deleted", 0),
                 "entities_deleted": result.get("entities_deleted", 0),
+                "qdrant_chunks_deleted": qdrant_chunks_deleted,
                 "s3_deleted": s3_deleted
             }
         return {"status": "error", "message": "Document non trouvé"}
@@ -1322,7 +1487,9 @@ async def system_health() -> dict:
     """
     Vérifie l'état de santé du système.
     
-    Teste les connexions à tous les services (S3, Neo4j, LLMaaS).
+    Teste les connexions à tous les services :
+    S3, Neo4j, LLMaaS, Qdrant, Embedding.
+    Les 5 doivent être OK, sinon le service est considéré en erreur.
     
     Returns:
         État de chaque service
@@ -1341,17 +1508,29 @@ async def system_health() -> dict:
     except Exception as e:
         results["neo4j"] = {"status": "error", "message": str(e)}
     
-    # Test LLMaaS
+    # Test LLMaaS (génération)
     try:
         results["llmaas"] = await get_extractor().test_connection()
     except Exception as e:
         results["llmaas"] = {"status": "error", "message": str(e)}
     
-    # Statut global
+    # Test Qdrant
+    try:
+        results["qdrant"] = await get_vector_store().test_connection()
+    except Exception as e:
+        results["qdrant"] = {"status": "error", "message": str(e)}
+    
+    # Test Embedding (LLMaaS endpoint)
+    try:
+        results["embedding"] = await get_embedder().test_connection()
+    except Exception as e:
+        results["embedding"] = {"status": "error", "message": str(e)}
+    
+    # Statut global : TOUS doivent être OK (couplage strict)
     all_ok = all(r.get("status") == "ok" for r in results.values())
     
     return {
-        "status": "ok" if all_ok else "degraded",
+        "status": "ok" if all_ok else "error",
         "services": results
     }
 

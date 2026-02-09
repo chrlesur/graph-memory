@@ -30,11 +30,22 @@ services:
       - LLMAAS_API_KEY=${LLMAAS_API_KEY}
       - LLMAAS_MODEL=${LLMAAS_MODEL:-gpt-oss:120b}
       - EXTRACTION_MAX_TEXT_LENGTH=${EXTRACTION_MAX_TEXT_LENGTH:-950000}
+      # Embedding
+      - LLMAAS_EMBEDDING_MODEL=${LLMAAS_EMBEDDING_MODEL:-bge-m3:567m}
+      - LLMAAS_EMBEDDING_DIMENSIONS=${LLMAAS_EMBEDDING_DIMENSIONS:-1024}
+      # Qdrant
+      - QDRANT_URL=http://qdrant:6333
+      - QDRANT_COLLECTION_PREFIX=${QDRANT_COLLECTION_PREFIX:-memory_}
+      # Chunking
+      - CHUNK_SIZE=${CHUNK_SIZE:-500}
+      - CHUNK_OVERLAP=${CHUNK_OVERLAP:-50}
       # Server config
       - MCP_SERVER_DEBUG=${MCP_SERVER_DEBUG:-false}
       - ADMIN_BOOTSTRAP_KEY=${ADMIN_BOOTSTRAP_KEY}
     depends_on:
       neo4j:
+        condition: service_healthy
+      qdrant:
         condition: service_healthy
     restart: unless-stopped
     networks:
@@ -72,6 +83,27 @@ services:
     networks:
       - mcp-network
 
+  # ===========================================================================
+  # Qdrant - Base de données vectorielle (RAG)
+  # ===========================================================================
+  qdrant:
+    image: qdrant/qdrant:v1.16.2
+    container_name: mcp-memory-qdrant
+    ports:
+      - "6333:6333"   # REST API
+      - "6334:6334"   # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+    networks:
+      - mcp-network
+
 # =============================================================================
 # Volumes persistants
 # =============================================================================
@@ -80,6 +112,8 @@ volumes:
     name: mcp-memory-neo4j-data
   neo4j_logs:
     name: mcp-memory-neo4j-logs
+  qdrant_data:
+    name: mcp-memory-qdrant-data
 
 # =============================================================================
 # Réseau
