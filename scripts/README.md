@@ -82,10 +82,14 @@ python scripts/mcp_cli.py document list JURIDIQUE
 # Ingérer un document
 python scripts/mcp_cli.py document ingest JURIDIQUE /path/to/contrat.docx
 
+# Ingérer avec un chemin source personnalisé (ex: chemin relatif dans un repo)
+python scripts/mcp_cli.py document ingest JURIDIQUE /path/to/contrat.docx --source-path "legal/contracts/contrat.docx"
+
 # Ingérer un document (forcer la ré-ingestion)
 python scripts/mcp_cli.py document ingest JURIDIQUE /path/to/contrat.docx -f
 
 # Ingérer un répertoire entier (récursif)
+# → source_path (chemin relatif) et source_modified_at (mtime) passés automatiquement
 python scripts/mcp_cli.py document ingest-dir JURIDIQUE ./MATIERE/JURIDIQUE
 python scripts/mcp_cli.py document ingest-dir JURIDIQUE ./docs -e '*.tmp' --force
 
@@ -152,6 +156,15 @@ python scripts/mcp_cli.py token set-memories <hash> JURIDIQUE CLOUD
 python scripts/mcp_cli.py token set-memories <hash>   # Accès à toutes
 ```
 
+**Options de `document ingest` :**
+
+| Option | Description | Exemple |
+|--------|-------------|---------|
+| `--source-path` | Chemin source personnalisé (sinon: chemin absolu du fichier) | `--source-path "legal/CGA.docx"` |
+| `-f` / `--force` | Forcer la ré-ingestion même si le hash existe | `-f` |
+
+> **Note v0.6.0** : `source_path` et `source_modified_at` (date de modification du fichier) sont passés automatiquement au serveur lors de l'ingestion. Cela permet au LLM de détecter si un fichier a changé sans télécharger le contenu.
+
 **Options de `token create` :**
 
 | Option | Description | Exemple |
@@ -195,8 +208,8 @@ Fonctionnalités :
 | Commande | Description |
 |----------|-------------|
 | `docs` | Lister les documents |
-| `ingest <path>` | Ingérer un fichier (`--force` pour ré-ingérer) |
-| `ingestdir <path>` | Ingérer un répertoire (`--exclude`, `--confirm`, `--force`) |
+| `ingest <path>` | Ingérer un fichier (`--force` pour ré-ingérer). Passe automatiquement `source_path` et `source_modified_at`. |
+| `ingestdir <path>` | Ingérer un répertoire (`--exclude`, `--confirm`, `--force`). Passe `source_path` (relatif) + `source_modified_at` par fichier. |
 | `deldoc <id>` | Supprimer un document |
 
 #### Exploration
@@ -320,4 +333,4 @@ pip install httpx httpx-sse click rich prompt_toolkit
 
 ---
 
-*Graph Memory CLI v0.5.1 — Février 2026*
+*Graph Memory CLI v0.6.0 — Février 2026*

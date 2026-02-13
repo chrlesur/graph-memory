@@ -84,7 +84,13 @@ class MCPClient:
         headers = {"Authorization": f"Bearer {self.token}"}
 
         try:
-            async with sse_client(f"{self.base_url}/sse", headers=headers) as (read, write):
+            # sse_read_timeout élevé pour les opérations longues (ingestion LLM)
+            async with sse_client(
+                f"{self.base_url}/sse",
+                headers=headers,
+                timeout=10,              # connexion initiale : 10s
+                sse_read_timeout=900     # attente réponse : 15 min (extraction LLM de gros docs)
+            ) as (read, write):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     result = await session.call_tool(tool_name, args)

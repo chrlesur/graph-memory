@@ -272,9 +272,29 @@ class GraphService:
         uri: str,
         filename: str,
         doc_hash: str,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        source_path: Optional[str] = None,
+        source_modified_at: Optional[str] = None,
+        size_bytes: int = 0,
+        text_length: int = 0,
+        content_type: str = "",
     ) -> Document:
-        """Ajoute un document au graphe."""
+        """
+        Ajoute un document au graphe avec métadonnées enrichies.
+        
+        Args:
+            memory_id: ID de la mémoire
+            doc_id: UUID du document
+            uri: URI S3 du document
+            filename: Nom du fichier
+            doc_hash: SHA-256 du contenu
+            metadata: Métadonnées custom (dict libre, sérialisé en JSON)
+            source_path: Chemin complet d'origine du fichier (ex: "legal/contracts/CGA.pdf")
+            source_modified_at: Date de dernière modification du fichier source (ISO 8601)
+            size_bytes: Taille du fichier en bytes
+            text_length: Longueur du texte extrait en caractères
+            content_type: Extension/type du fichier (ex: "pdf", "docx")
+        """
         import json
         
         async with self.session() as session:
@@ -290,7 +310,12 @@ class GraphService:
                     filename: $filename,
                     hash: $hash,
                     ingested_at: datetime(),
-                    metadata_json: $metadata_json
+                    metadata_json: $metadata_json,
+                    source_path: $source_path,
+                    source_modified_at: $source_modified_at,
+                    size_bytes: $size_bytes,
+                    text_length: $text_length,
+                    content_type: $content_type
                 })
                 RETURN d
                 """,
@@ -299,7 +324,12 @@ class GraphService:
                 uri=uri,
                 filename=filename,
                 hash=doc_hash,
-                metadata_json=metadata_json
+                metadata_json=metadata_json,
+                source_path=source_path or "",
+                source_modified_at=source_modified_at or "",
+                size_bytes=size_bytes,
+                text_length=text_length,
+                content_type=content_type
             )
             
             record = await result.single()
@@ -351,13 +381,18 @@ class GraphService:
             )
     
     async def get_document(self, memory_id: str, doc_id: str) -> Optional[Dict[str, Any]]:
-        """Récupère les informations d'un document."""
+        """Récupère les informations complètes d'un document (métadonnées enrichies)."""
         async with self.session() as session:
             result = await session.run(
                 """
                 MATCH (d:Document {id: $doc_id, memory_id: $memory_id})
                 RETURN d.id as id, d.filename as filename, d.uri as uri, 
-                       d.hash as hash, d.ingested_at as ingested_at
+                       d.hash as hash, d.ingested_at as ingested_at,
+                       d.source_path as source_path,
+                       d.source_modified_at as source_modified_at,
+                       d.size_bytes as size_bytes,
+                       d.text_length as text_length,
+                       d.content_type as content_type
                 """,
                 doc_id=doc_id,
                 memory_id=memory_id
@@ -369,7 +404,12 @@ class GraphService:
                     "filename": record["filename"],
                     "uri": record["uri"],
                     "hash": record["hash"],
-                    "ingested_at": record["ingested_at"]
+                    "ingested_at": record["ingested_at"],
+                    "source_path": record["source_path"] or None,
+                    "source_modified_at": record["source_modified_at"] or None,
+                    "size_bytes": record["size_bytes"] or 0,
+                    "text_length": record["text_length"] or 0,
+                    "content_type": record["content_type"] or None,
                 }
             return None
 
@@ -823,12 +863,17 @@ class GraphService:
                 })
                 node_ids.add(node_id)
             
-            # Récupérer tous les documents avec leur URI S3
+            # Récupérer tous les documents avec leur URI S3 et métadonnées enrichies
             docs_result = await session.run(
                 """
                 MATCH (d:Document {memory_id: $memory_id})
                 RETURN d.id as id, d.filename as filename, d.uri as uri, 
-                       d.hash as hash, d.ingested_at as ingested_at
+                       d.hash as hash, d.ingested_at as ingested_at,
+                       d.source_path as source_path,
+                       d.source_modified_at as source_modified_at,
+                       d.size_bytes as size_bytes,
+                       d.text_length as text_length,
+                       d.content_type as content_type
                 ORDER BY d.ingested_at DESC
                 """,
                 memory_id=memory_id
@@ -838,13 +883,31 @@ class GraphService:
             doc_ids = set()
             async for record in docs_result:
                 doc_id = f"doc:{record['id']}"
-                documents.append({
+                doc_entry = {
                     "id": record["id"],
                     "filename": record["filename"],
                     "uri": record["uri"],  # URI S3 pour récupérer le fichier
                     "hash": record["hash"],
-                    "ingested_at": record["ingested_at"].isoformat() if record["ingested_at"] else None
-                })
+                    "ingested_at": record["ingested_at"].isoformat() if record["ingested_at"] else None,
+                }
+                # Ajouter les métadonnées enrichies si présentes
+                source_path = record.get("source_path")
+                if source_path:
+                    doc_entry["source_path"] = source_path
+                source_modified = record.get("source_modified_at")
+                if source_modified:
+                    doc_entry["source_modified_at"] = source_modified
+                size_bytes = record.get("size_bytes")
+                if size_bytes:
+                    doc_entry["size_bytes"] = size_bytes
+                text_length = record.get("text_length")
+                if text_length:
+                    doc_entry["text_length"] = text_length
+                content_type = record.get("content_type")
+                if content_type:
+                    doc_entry["content_type"] = content_type
+                
+                documents.append(doc_entry)
                 # Ajouter les documents comme nœuds aussi (pour visualisation)
                 nodes.append({
                     "id": doc_id,

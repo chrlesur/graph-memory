@@ -342,6 +342,316 @@ class ExtractorService:
             print(f"❌ [Extractor] Erreur API: {e}", file=sys.stderr)
             raise
 
+    # =========================================================================
+    # Extraction chunked (gros documents)
+    # =========================================================================
+
+    async def extract_with_ontology_chunked(
+        self,
+        text: str,
+        ontology_name: str = "default",
+    ) -> ExtractionResult:
+        """
+        Extrait les entités et relations d'un texte long en le découpant en chunks.
+        
+        Stratégie séquentielle avec contexte cumulatif :
+        - Si le texte est court (< extraction_chunk_size), délègue à extract_with_ontology()
+        - Sinon, découpe en chunks aux frontières de sections
+        - Chaque chunk reçoit le contexte des entités/relations déjà extraites
+        - Les résultats sont fusionnés à la fin
+        
+        Args:
+            text: Texte complet du document
+            ontology_name: Nom de l'ontologie à utiliser
+            
+        Returns:
+            ExtractionResult fusionné avec toutes les entités et relations
+        """
+        settings = get_settings()
+        chunk_size = settings.extraction_chunk_size
+        
+        # Si le texte tient dans un seul chunk, pas besoin de découper
+        if len(text) <= chunk_size:
+            print(f"📄 [Extractor] Document court ({len(text)} chars ≤ {chunk_size}) → extraction simple",
+                  file=sys.stderr)
+            return await self.extract_with_ontology(text, ontology_name)
+        
+        # Découper le texte en chunks aux frontières de sections
+        chunks = self._split_text_for_extraction(text, chunk_size)
+        print(f"📐 [Extractor] Document long ({len(text)} chars) → {len(chunks)} chunks d'extraction",
+              file=sys.stderr)
+        
+        # Charger l'ontologie (une seule fois)
+        ontology_manager = get_ontology_manager()
+        ontology = ontology_manager.get_ontology(ontology_name)
+        if not ontology:
+            available = [o["name"] for o in ontology_manager.list_ontologies()]
+            raise ValueError(
+                f"Ontologie '{ontology_name}' introuvable. "
+                f"Ontologies disponibles: {available}."
+            )
+        
+        # Types de relations connus depuis l'ontologie
+        ontology_relation_types = {
+            rt.name.upper() for rt in ontology.relation_types
+        } | self.BASE_RELATION_TYPES
+        
+        # Extraction séquentielle avec contexte cumulatif
+        all_entities: List[ExtractedEntity] = []
+        all_relations: List[ExtractedRelation] = []
+        all_summaries: List[str] = []
+        all_key_topics: List[str] = []
+        
+        for i, chunk_text in enumerate(chunks):
+            chunk_num = i + 1
+            
+            # Construire le contexte cumulatif (vide pour le premier chunk)
+            cumulative_context = ""
+            if all_entities or all_relations:
+                cumulative_context = self._build_cumulative_context(all_entities, all_relations)
+            
+            print(f"🔄 [Extractor] Chunk {chunk_num}/{len(chunks)} "
+                  f"({len(chunk_text)} chars, contexte cumulatif: {len(all_entities)} entités, "
+                  f"{len(all_relations)} relations)", file=sys.stderr)
+            
+            # Construire le prompt avec contexte cumulatif
+            prompt = ontology.build_prompt(chunk_text, cumulative_context=cumulative_context)
+            
+            try:
+                response = await self._client.chat.completions.create(
+                    model=self._model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "Tu es un assistant spécialisé dans l'extraction d'information structurée. Tu réponds uniquement en JSON valide."
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ],
+                    max_tokens=self._max_tokens,
+                    temperature=self._temperature
+                )
+                
+                content = response.choices[0].message.content
+                if content is None:
+                    print(f"⚠️ [Extractor] Chunk {chunk_num}: réponse LLM vide", file=sys.stderr)
+                    continue
+                
+                result = self._parse_extraction(content, known_relation_types=ontology_relation_types)
+                
+                print(f"✅ [Extractor] Chunk {chunk_num}: +{len(result.entities)} entités, "
+                      f"+{len(result.relations)} relations", file=sys.stderr)
+                
+                # Accumuler les résultats
+                all_entities.extend(result.entities)
+                all_relations.extend(result.relations)
+                if result.summary:
+                    all_summaries.append(result.summary)
+                all_key_topics.extend(result.key_topics)
+                
+            except APITimeoutError:
+                print(f"⏰ [Extractor] Timeout chunk {chunk_num}/{len(chunks)} — on continue", file=sys.stderr)
+                # On continue avec les chunks suivants au lieu de tout perdre
+                continue
+            except APIError as e:
+                print(f"❌ [Extractor] Erreur API chunk {chunk_num}/{len(chunks)}: {e}", file=sys.stderr)
+                raise
+        
+        # Fusionner les résultats
+        merged = self._merge_extraction_results(all_entities, all_relations, all_summaries, all_key_topics)
+        
+        print(f"🏁 [Extractor] Extraction chunked terminée: "
+              f"{len(merged.entities)} entités, {len(merged.relations)} relations "
+              f"(depuis {len(chunks)} chunks)", file=sys.stderr)
+        
+        return merged
+
+    def _split_text_for_extraction(self, text: str, chunk_size: int) -> List[str]:
+        """
+        Découpe un texte long en chunks pour l'extraction graph.
+        
+        Stratégie : découpe aux frontières de sections (double saut de ligne,
+        articles, titres) pour ne jamais couper au milieu d'un paragraphe.
+        
+        Args:
+            text: Texte complet du document
+            chunk_size: Taille max en caractères par chunk
+            
+        Returns:
+            Liste de chunks de texte
+        """
+        import re
+        
+        # Identifier les points de coupe naturels (double saut de ligne)
+        # On préfère couper aux frontières de sections/articles
+        sections = re.split(r'(\n\s*\n)', text)
+        
+        chunks = []
+        current_chunk = ""
+        
+        for section in sections:
+            # Si ajouter cette section dépasse la taille ET qu'on a déjà du contenu
+            if len(current_chunk) + len(section) > chunk_size and current_chunk.strip():
+                chunks.append(current_chunk.strip())
+                current_chunk = section
+            else:
+                current_chunk += section
+        
+        # Dernier chunk
+        if current_chunk.strip():
+            chunks.append(current_chunk.strip())
+        
+        # Si un chunk est encore trop gros (section unique très longue),
+        # on le re-découpe sur les simples sauts de ligne
+        final_chunks = []
+        for chunk in chunks:
+            if len(chunk) > chunk_size * 1.5:  # Tolérance de 50%
+                sub_chunks = self._force_split_chunk(chunk, chunk_size)
+                final_chunks.extend(sub_chunks)
+            else:
+                final_chunks.append(chunk)
+        
+        return final_chunks
+
+    def _force_split_chunk(self, text: str, chunk_size: int) -> List[str]:
+        """
+        Découpe forcée d'un chunk trop gros (section unique très longue).
+        
+        Coupe aux frontières de lignes pour ne jamais couper mid-phrase.
+        """
+        lines = text.split('\n')
+        chunks = []
+        current_chunk = ""
+        
+        for line in lines:
+            if len(current_chunk) + len(line) + 1 > chunk_size and current_chunk.strip():
+                chunks.append(current_chunk.strip())
+                current_chunk = line + '\n'
+            else:
+                current_chunk += line + '\n'
+        
+        if current_chunk.strip():
+            chunks.append(current_chunk.strip())
+        
+        return chunks
+
+    @staticmethod
+    def _build_cumulative_context(
+        entities: List[ExtractedEntity],
+        relations: List[ExtractedRelation]
+    ) -> str:
+        """
+        Construit un résumé compact des entités et relations déjà extraites.
+        
+        Format optimisé pour le budget tokens :
+        - ~10-15 tokens par entité
+        - ~15-20 tokens par relation
+        - Total typique : 2-3K tokens pour 100 entités + 100 relations
+        
+        Args:
+            entities: Entités déjà extraites
+            relations: Relations déjà extraites
+            
+        Returns:
+            Texte compact du contexte cumulatif
+        """
+        parts = []
+        
+        # Liste compacte des entités (nom + type)
+        if entities:
+            entity_lines = []
+            for e in entities:
+                type_str = e.type.value if hasattr(e.type, 'value') else str(e.type)
+                entity_lines.append(f"- {e.name} ({type_str})")
+            parts.append("ENTITÉS DÉJÀ EXTRAITES:\n" + "\n".join(entity_lines))
+        
+        # Liste compacte des relations (from --TYPE--> to)
+        if relations:
+            relation_lines = []
+            for r in relations:
+                relation_lines.append(f"- {r.from_entity} --{r.type}--> {r.to_entity}")
+            parts.append("RELATIONS DÉJÀ EXTRAITES:\n" + "\n".join(relation_lines))
+        
+        return "\n\n".join(parts)
+
+    @staticmethod
+    def _merge_extraction_results(
+        all_entities: List[ExtractedEntity],
+        all_relations: List[ExtractedRelation],
+        all_summaries: List[str],
+        all_key_topics: List[str]
+    ) -> ExtractionResult:
+        """
+        Fusionne les résultats de N extractions chunked.
+        
+        Déduplication :
+        - Entités : par (nom normalisé, type), on garde la description la plus longue
+        - Relations : par (from, to, type), on garde la description la plus longue
+        - Key topics : unicité
+        - Summaries : concaténation
+        
+        Args:
+            all_entities: Toutes les entités extraites (avec doublons potentiels)
+            all_relations: Toutes les relations extraites
+            all_summaries: Résumés partiels de chaque chunk
+            all_key_topics: Topics de chaque chunk
+            
+        Returns:
+            ExtractionResult fusionné et dédupliqué
+        """
+        # Dédupliquer les entités par (nom normalisé, type)
+        entity_map = {}  # (name_lower, type) -> ExtractedEntity
+        for e in all_entities:
+            key = (e.name.strip().lower(), e.type)
+            if key not in entity_map:
+                entity_map[key] = e
+            else:
+                # Garder la description la plus longue (la plus riche)
+                existing = entity_map[key]
+                if e.description and (not existing.description or len(e.description) > len(existing.description)):
+                    entity_map[key] = ExtractedEntity(
+                        name=existing.name,  # Garder le nom original (première occurrence)
+                        type=existing.type,
+                        description=e.description
+                    )
+        
+        # Dédupliquer les relations par (from_lower, to_lower, type)
+        relation_map = {}  # (from, to, type) -> ExtractedRelation
+        for r in all_relations:
+            key = (r.from_entity.strip().lower(), r.to_entity.strip().lower(), r.type)
+            if key not in relation_map:
+                relation_map[key] = r
+            else:
+                existing = relation_map[key]
+                if r.description and (not existing.description or len(r.description) > len(existing.description)):
+                    relation_map[key] = ExtractedRelation(
+                        from_entity=existing.from_entity,
+                        to_entity=existing.to_entity,
+                        type=existing.type,
+                        description=r.description
+                    )
+        
+        # Fusionner les résumés
+        merged_summary = " ".join(all_summaries) if all_summaries else None
+        
+        # Dédupliquer les topics
+        seen_topics = set()
+        unique_topics = []
+        for topic in all_key_topics:
+            topic_lower = topic.strip().lower()
+            if topic_lower not in seen_topics:
+                seen_topics.add(topic_lower)
+                unique_topics.append(topic.strip())
+        
+        return ExtractionResult(
+            entities=list(entity_map.values()),
+            relations=list(relation_map.values()),
+            summary=merged_summary,
+            key_topics=unique_topics
+        )
+
     async def test_connection(self) -> dict:
         """Teste la connexion au LLMaaS."""
         try:

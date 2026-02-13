@@ -10,14 +10,15 @@ function renderGraph(nodes, edges) {
     const container = document.getElementById('graph');
     const isIsolated = filterState.isolatedNodes !== null;
 
+    // Options d'affichage (contrôlées par les toggles du header)
+    const showLabels = displayOptions.showEdgeLabels;
+    const showShadows = displayOptions.showShadows;
+    const showSmooth = displayOptions.showSmooth;
+
     const visNodes = nodes.map(n => {
         const bgColor = TYPE_COLORS[n.type] || TYPE_COLORS.Unknown;
         const base = currentParams.nodeSize;
-
-        // Label complet, sans troncature
         const label = n.label;
-
-        // En mode isolation, les documents sont plus gros et en forme d'icône
         const docSizeMultiplier = isIsolated ? 2.2 : 1.5;
 
         return {
@@ -39,49 +40,123 @@ function renderGraph(nodes, edges) {
         };
     });
 
-    const showLabels = true; // Labels toujours visibles (simplifié)
     const visEdges = edges.map((e, i) => {
         const isMentions = e.type === 'MENTIONS';
         return {
             id: i, from: e.from, to: e.to,
-            label: (isIsolated && isMentions) ? '' : (showLabels ? (e.type || '').replace(/_/g, ' ') : ''),
+            // Labels contrôlés par le toggle 🏷️ dans le header
+            label: showLabels ? ((isIsolated && isMentions) ? '' : (e.type || '').replace(/_/g, ' ')) : '',
             title: `${e.type}\n${e.description || ''}`,
             arrows: { to: { enabled: true, scaleFactor: 0.5 } },
             color: { color: EDGE_COLORS[e.type] || '#556', highlight: '#fff', hover: '#aaa' },
             font: { color: '#bbb', size: Math.max(currentParams.fontSize - 2, 8), strokeWidth: 2, strokeColor: '#000', align: 'top' },
             width: isMentions ? 1 : 2,
             dashes: (isIsolated && isMentions) ? [5, 5] : false,
-            smooth: { type: 'continuous', roundness: 0.2 }
+            // Smooth contrôlé par le toggle 〰️ dans le header
+            smooth: showSmooth ? { type: 'continuous', roundness: 0.2 } : false
         };
     });
 
     const data = { nodes: new vis.DataSet(visNodes), edges: new vis.DataSet(visEdges) };
 
-    const options = {
-        physics: {
+    // Construire les options selon le layout sélectionné
+    const layoutMode = displayOptions.layout;
+    const isHierarchical = layoutMode.startsWith('hierarchical');
+
+    let physicsOptions, layoutOptions;
+
+    if (isHierarchical) {
+        const direction = layoutMode === 'hierarchicalLR' ? 'LR' : 'UD';
+        physicsOptions = {
+            enabled: true,
+            hierarchicalRepulsion: {
+                centralGravity: 0.0, springLength: currentParams.springLength,
+                springConstant: 0.01, nodeDistance: 150, damping: 0.09
+            },
+            stabilization: { iterations: 200, fit: false },
+            maxVelocity: 30, minVelocity: 0.75
+        };
+        layoutOptions = {
+            hierarchical: {
+                enabled: true, direction: direction,
+                sortMethod: 'directed', levelSeparation: 200,
+                nodeSpacing: 150, treeSpacing: 250
+            }
+        };
+    } else if (layoutMode === 'forceAtlas2') {
+        physicsOptions = {
+            enabled: true,
+            forceAtlas2Based: {
+                gravitationalConstant: -80, centralGravity: 0.005,
+                springLength: currentParams.springLength, springConstant: 0.08,
+                damping: 0.4, avoidOverlap: 0.5
+            },
+            stabilization: { iterations: 300, fit: false },
+            maxVelocity: 50, minVelocity: 0.75
+        };
+        layoutOptions = { improvedLayout: true };
+    } else {
+        // barnesHut (défaut — organique)
+        physicsOptions = {
             enabled: true,
             barnesHut: {
                 gravitationalConstant: -currentParams.gravity, centralGravity: 0.1,
                 springLength: currentParams.springLength, springConstant: 0.02,
                 damping: 0.9, avoidOverlap: 0.5
             },
-            stabilization: { iterations: 300, fit: true }, maxVelocity: 30, minVelocity: 0.75
+            stabilization: { iterations: 300, fit: false },
+            maxVelocity: 30, minVelocity: 0.75
+        };
+        layoutOptions = { improvedLayout: true };
+    }
+
+    const options = {
+        physics: physicsOptions,
+        interaction: {
+            hover: true, tooltipDelay: 200, zoomView: true, dragView: true,
+            navigationButtons: true, keyboard: true,
+            zoomSpeed: 0.6
         },
-        interaction: { hover: true, tooltipDelay: 100, zoomView: true, dragView: true, navigationButtons: true, keyboard: true },
-        nodes: { borderWidth: 2, shadow: { enabled: true, size: 5 } },
+        nodes: {
+            borderWidth: 2,
+            shadow: showShadows ? { enabled: true, size: 5 } : false
+        },
         edges: { width: 1.5, selectionWidth: 3, shadow: false },
-        layout: { improvedLayout: true }
+        layout: layoutOptions
     };
 
     appState.network = new vis.Network(container, data, options);
 
-    // Geler après stabilisation
-    appState.network.on('stabilizationIterationsDone', function () {
-        appState.network.fit({ animation: { duration: 500, easingFunction: 'easeInOutQuad' } });
-        setTimeout(() => appState.network.setOptions({ physics: { enabled: false } }), 600);
+    // Stabilisation initiale : fit UNE SEULE FOIS puis geler la physique
+    // once() garantit que cet handler ne se déclenche qu'une fois
+    let userInteracted = false;
+
+    appState.network.once('stabilizationIterationsDone', function () {
+        appState.network.setOptions({ physics: { enabled: false } });
+        // Ne faire fit() que si l'utilisateur n'a pas déjà zoomé/déplacé
+        // Sans animation pour éviter les saccades sur graphes denses
+        if (!userInteracted) {
+            appState.network.fit({ animation: false });
+        }
     });
-    appState.network.on('dragStart', () => appState.network.setOptions({ physics: { enabled: true, stabilization: false } }));
-    appState.network.on('dragEnd', () => setTimeout(() => appState.network.setOptions({ physics: { enabled: false } }), 1000));
+
+    // Si l'utilisateur zoome ou drag pendant la stabilisation,
+    // on arrête immédiatement la physique pour lui rendre le contrôle
+    appState.network.on('zoom', function () {
+        if (!userInteracted) {
+            userInteracted = true;
+            appState.network.setOptions({ physics: { enabled: false } });
+        }
+    });
+    appState.network.on('dragStart', function () {
+        if (!userInteracted) {
+            userInteracted = true;
+            appState.network.setOptions({ physics: { enabled: false } });
+        }
+    });
+
+    // Log de rendu
+    console.log(`📊 [Graph] ${nodes.length} nœuds, ${edges.length} arêtes | labels:${showLabels ? 'ON' : 'OFF'} ombres:${showShadows ? 'ON' : 'OFF'} smooth:${showSmooth ? 'ON' : 'OFF'}`);
 
     // Clic nœud → détails
     appState.network.on('click', function (params) {
@@ -166,7 +241,7 @@ function highlightEntities(entityNames) {
     if (matchingIds.length > 0) {
         appState.network.selectNodes(matchingIds);
         if (matchingIds.length <= 5) {
-            appState.network.fit({ nodes: matchingIds, animation: { duration: 600, easingFunction: 'easeInOutQuad' } });
+            appState.network.fit({ nodes: matchingIds, animation: false });
         }
     }
 }
@@ -206,13 +281,16 @@ function isolateSubgraph(entityNames) {
 
     // 3. Inclure les nœuds Document sources de TOUTES les entités isolées
     //    (seeds + voisins) pour voir d'où vient chaque information
+    //    Note: les nœuds document ont un id préfixé "doc:xxx" mais
+    //    source_docs contient les IDs bruts "xxx"
     const allIsolatedEntities = data.nodes.filter(n => neighborIds.has(n.id) && n.node_type !== 'document');
     allIsolatedEntities.forEach(entity => {
         if (entity.source_docs && entity.source_docs.length > 0) {
             entity.source_docs.forEach(docId => {
-                // Vérifier que ce document existe dans les données
-                const docNode = data.nodes.find(n => n.id === docId);
-                if (docNode) neighborIds.add(docId);
+                // Chercher le nœud document avec le préfixe "doc:"
+                const prefixedId = 'doc:' + docId;
+                const docNode = data.nodes.find(n => n.id === prefixedId);
+                if (docNode) neighborIds.add(prefixedId);
             });
         }
     });
@@ -241,7 +319,7 @@ function isolateSubgraph(entityNames) {
             appState.network.selectNodes([...seedIds]);
             appState.network.fit({
                 nodes: [...neighborIds],
-                animation: { duration: 600, easingFunction: 'easeInOutQuad' }
+                animation: false
             });
         }
     }, 800);

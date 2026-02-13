@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     llmaas_max_tokens: int = 60000  # gpt-oss:120b fait du chain-of-thought qui consomme beaucoup de tokens
     llmaas_temperature: float = 1.0  # gpt-oss:120b fonctionne mieux à température 1.0
     extraction_max_text_length: int = 950000  # Max chars du texte envoyé au LLM (défaut ~950K)
+    extraction_chunk_size: int = 200000  # Max chars par chunk d'extraction graph (~60K tokens)
     
     # =========================================================================
     # Embedding (LLMaaS)
@@ -95,7 +96,7 @@ class Settings(BaseSettings):
     # Limites et timeouts
     # =========================================================================
     max_document_size_mb: int = 50
-    extraction_timeout_seconds: int = 120
+    extraction_timeout_seconds: int = 600  # 10 min par appel LLM (gros docs avec chain-of-thought)
     s3_upload_timeout_seconds: int = 60
     neo4j_query_timeout_seconds: int = 30
     
