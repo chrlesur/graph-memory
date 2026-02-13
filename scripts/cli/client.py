@@ -70,42 +70,100 @@ class MCPClient:
                 raise ServerNotRunningError(self.base_url)
             raise
 
-    async def call_tool(self, tool_name: str, args: dict) -> dict:
+    async def call_tool(self, tool_name: str, args: dict, max_retries: int = 2) -> dict:
         """
         Appeler un outil MCP via le protocole SSE.
 
         Lève ServerNotRunningError si le serveur est injoignable.
         Les erreurs de connexion SSE sont souvent wrappées dans un
         ExceptionGroup/TaskGroup, d'où le parsing récursif.
+        
+        Retry automatique en cas de déconnexion SSE (RemoteProtocolError,
+        ClosedResourceError) — fréquent pour les opérations longues (ingestion).
         """
+        import asyncio
+        import sys
         from mcp import ClientSession
         from mcp.client.sse import sse_client
 
         headers = {"Authorization": f"Bearer {self.token}"}
 
-        try:
-            # sse_read_timeout élevé pour les opérations longues (ingestion LLM)
-            async with sse_client(
-                f"{self.base_url}/sse",
-                headers=headers,
-                timeout=10,              # connexion initiale : 10s
-                sse_read_timeout=900     # attente réponse : 15 min (extraction LLM de gros docs)
-            ) as (read, write):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    result = await session.call_tool(tool_name, args)
-                    return json.loads(result.content[0].text)
-        except ConnectionRefusedError:
-            raise ServerNotRunningError(self.base_url)
-        except OSError as e:
-            if "refused" in str(e).lower() or "Connect call failed" in str(e):
+        last_error = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                # sse_read_timeout élevé pour les opérations longues (ingestion LLM)
+                async with sse_client(
+                    f"{self.base_url}/sse",
+                    headers=headers,
+                    timeout=30,              # connexion initiale : 30s (augmenté)
+                    sse_read_timeout=900     # attente réponse : 15 min (extraction LLM de gros docs)
+                ) as (read, write):
+                    async with ClientSession(read, write) as session:
+                        await session.initialize()
+                        result = await session.call_tool(tool_name, args)
+                        return json.loads(result.content[0].text)
+            except ConnectionRefusedError:
                 raise ServerNotRunningError(self.base_url)
-            raise
-        except BaseException as e:
-            # ExceptionGroup / TaskGroup wrappent souvent les erreurs de connexion
-            if self._is_connection_error(e):
-                raise ServerNotRunningError(self.base_url)
-            raise
+            except OSError as e:
+                if "refused" in str(e).lower() or "Connect call failed" in str(e):
+                    raise ServerNotRunningError(self.base_url)
+                raise
+            except BaseException as e:
+                # Vérifier si c'est une erreur de connexion (serveur down)
+                if self._is_connection_error(e):
+                    raise ServerNotRunningError(self.base_url)
+                # Vérifier si c'est une erreur SSE récupérable (déconnexion mid-stream)
+                if self._is_sse_disconnect(e) and attempt < max_retries:
+                    last_error = e
+                    wait_time = attempt * 5  # 5s, 10s, 15s...
+                    print(f"⚠️  Connexion SSE perdue (tentative {attempt}/{max_retries}), "
+                          f"retry dans {wait_time}s...", file=sys.stderr)
+                    await asyncio.sleep(wait_time)
+                    continue
+                raise
+
+        # Si on arrive ici, tous les retries ont échoué
+        raise last_error or Exception("Échec après toutes les tentatives de retry")
+
+    @staticmethod
+    def _is_sse_disconnect(exc: BaseException) -> bool:
+        """
+        Vérifie si une exception est une déconnexion SSE récupérable.
+        
+        Ces erreurs surviennent quand la connexion HTTP est coupée pendant
+        une opération longue (ex: ingestion LLM de 5+ minutes).
+        Contrairement aux erreurs de connexion (serveur down), ces erreurs
+        sont temporaires et méritent un retry.
+        """
+        # Vérifier le message d'erreur directement
+        msg = str(exc).lower()
+        recoverable_patterns = [
+            "incomplete chunked read",
+            "peer closed connection",
+            "closedresourceerror",
+            "remoteprotocolerror",
+            "server disconnected",
+        ]
+        for pattern in recoverable_patterns:
+            if pattern in msg:
+                return True
+        
+        # Vérifier le type d'exception
+        type_name = type(exc).__name__
+        if type_name in ("RemoteProtocolError", "ClosedResourceError"):
+            return True
+        
+        # Parcourir les sous-exceptions d'un ExceptionGroup
+        if hasattr(exc, 'exceptions'):
+            for sub in exc.exceptions:
+                if MCPClient._is_sse_disconnect(sub):
+                    return True
+        
+        # Vérifier __cause__ (chainage d'exceptions)
+        if exc.__cause__ and MCPClient._is_sse_disconnect(exc.__cause__):
+            return True
+        
+        return False
 
     @staticmethod
     def _is_connection_error(exc: BaseException) -> bool:
