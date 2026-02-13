@@ -196,13 +196,40 @@ function setupHeaderControls() {
     });
     document.getElementById('loadBtn').addEventListener('click', loadSelectedGraph);
 
-    // Zoom to fit
+    // Zoom to fit (sans animation pour les graphes denses — beaucoup plus stable)
     document.getElementById('fitBtn').addEventListener('click', () => {
-        if (appState.network) appState.network.fit({ animation: { duration: 500, easingFunction: 'easeInOutQuad' } });
+        if (appState.network) appState.network.fit({ animation: false });
     });
 
     // Bouton "Graphe complet" (sortir du mode isolation)
     document.getElementById('exitIsolationBtn').addEventListener('click', exitIsolation);
+
+    // Sélecteur de layout
+    document.getElementById('layoutSelect').addEventListener('change', function () {
+        displayOptions.layout = this.value;
+        if (appState.currentData && filterState.initialized) {
+            applyFilters();
+        }
+    });
+
+    // Toggles d'affichage (labels arêtes, ombres, courbes)
+    setupDisplayToggle('toggleEdgeLabels', 'showEdgeLabels');
+    setupDisplayToggle('toggleShadows', 'showShadows');
+    setupDisplayToggle('toggleSmooth', 'showSmooth');
+}
+
+/** Connecte un bouton toggle à une option d'affichage et re-rend le graphe */
+function setupDisplayToggle(btnId, optionKey) {
+    document.getElementById(btnId).addEventListener('click', function () {
+        // Inverser l'option
+        displayOptions[optionKey] = !displayOptions[optionKey];
+        // Mettre à jour le style du bouton
+        this.classList.toggle('active', displayOptions[optionKey]);
+        // Re-rendre le graphe avec les nouvelles options (si un graphe est chargé)
+        if (appState.currentData && filterState.initialized) {
+            applyFilters();
+        }
+    });
 }
 
 /** Setup modale paramètres */

@@ -57,12 +57,14 @@ class Ontology:
     extraction_rules: ExtractionRules
     examples: List[Dict[str, Any]] = field(default_factory=list)
     
-    def build_prompt(self, document_text: str) -> str:
+    def build_prompt(self, document_text: str, cumulative_context: str = "") -> str:
         """
         Construit le prompt d'extraction à partir de l'ontologie.
         
         Args:
             document_text: Le texte du document à analyser
+            cumulative_context: Contexte cumulatif des extractions précédentes
+                                (entités et relations déjà identifiées dans les chunks précédents)
             
         Returns:
             Le prompt complet pour le LLM
@@ -100,13 +102,27 @@ class Ontology:
 {self.extraction_rules.special_instructions}
 """
         
+        # Section contexte cumulatif (pour extraction chunked)
+        cumulative_section = ""
+        if cumulative_context:
+            cumulative_section = f"""
+🔗 CONTEXTE CUMULATIF — ENTITÉS ET RELATIONS DÉJÀ IDENTIFIÉES DANS LES SECTIONS PRÉCÉDENTES:
+{cumulative_context}
+
+⚠️ INSTRUCTIONS CONTEXTE CUMULATIF:
+- NE PAS re-déclarer les entités déjà listées ci-dessus (sauf pour enrichir leur description)
+- Tu PEUX créer des relations VERS ces entités existantes depuis de nouvelles entités
+- Concentre-toi sur les NOUVELLES entités et relations de cette section
+- Si une entité déjà connue apparaît avec plus de détails, enrichis sa description dans le JSON
+"""
+        
         prompt = f"""{self.context}
 
 📄 DOCUMENT À ANALYSER:
 ---
 {document_text}
 ---
-{priority_str}
+{cumulative_section}{priority_str}
 AUTRES TYPES D'ENTITÉS:
 {entity_types_str}
 

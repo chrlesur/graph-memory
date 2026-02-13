@@ -44,6 +44,15 @@ const appState = {
     currentMemory: null  // ID de la mémoire sélectionnée
 };
 
+// ═══════════════ OPTIONS D'AFFICHAGE (toggles UI) ═══════════════
+
+const displayOptions = {
+    showEdgeLabels: true,   // Labels texte sur les arêtes
+    showShadows: true,      // Ombres sur les nœuds
+    showSmooth: true,       // Arêtes courbes (smooth) vs lignes droites
+    layout: 'barnesHut'     // 'barnesHut' | 'forceAtlas2' | 'hierarchicalUD' | 'hierarchicalLR'
+};
+
 // ═══════════════ ÉTAT DE FILTRAGE ═══════════════
 
 const filterState = {
@@ -101,8 +110,11 @@ function applyFilters() {
         if (isIsolated && filterState.isolatedNodes.has(n.id)) return true;
 
         // Les documents sont visibles si leur ID est dans visibleDocuments
+        // Note: les nœuds document ont un id préfixé "doc:xxx" mais
+        // visibleDocuments stocke les IDs bruts "xxx" (depuis data.documents)
         if (n.node_type === 'document') {
-            return filterState.visibleDocuments.has(n.id);
+            const rawId = n.id.startsWith('doc:') ? n.id.substring(4) : n.id;
+            return filterState.visibleDocuments.has(rawId);
         }
         // Les entités sont visibles si leur type est dans visibleEntityTypes
         return filterState.visibleEntityTypes.has(n.type);

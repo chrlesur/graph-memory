@@ -686,6 +686,21 @@ docker compose build mcp-memory && docker compose up -d mcp-memory
 
 ## 📋 Changelog
 
+### v0.6.0 — 13 février 2026
+
+**Chunked Graph Extraction + Métadonnées enrichies**
+
+- ✨ **Extraction chunked séquentielle** (`extractor.py`) — Les documents longs (> `EXTRACTION_CHUNK_SIZE` = 200K chars) sont découpés en chunks extraits séquentiellement. Chaque chunk reçoit le contexte cumulatif des entités/relations déjà vues. Le LLM ne re-déclare pas les entités existantes et crée des relations cross-chunks. Fusion finale avec déduplication.
+- ✨ **Métadonnées enrichies sur les documents** — Le nœud Document Neo4j stocke maintenant `source_path`, `source_modified_at`, `size_bytes`, `text_length`, `content_type`. Permet de détecter si un fichier a été modifié entre deux ingestions.
+- ✨ **`document_get` optimisé** — Nouveau paramètre `include_content=False` (défaut). Par défaut, retourne uniquement les métadonnées (requête Neo4j rapide, pas de téléchargement S3). `include_content=True` pour récupérer le contenu.
+- ✨ **CLI enrichi** — `document ingest` (+ option `--source-path`), `document ingest-dir`, `cmd_ingest`, `cmd_ingestdir` passent automatiquement `source_path` et `source_modified_at` (mtime fichier) au serveur.
+- 🔧 **Timeout LLM** — `extraction_timeout_seconds` : 120s → **600s** (10 min, nécessaire pour gpt-oss:120b chain-of-thought sur des textes longs).
+- 🔧 **Nouveau paramètre** `EXTRACTION_CHUNK_SIZE` (défaut 200K chars, configurable via `.env`).
+- 🔧 **Résilience** — Si un chunk d'extraction timeout, l'ingestion continue avec les chunks suivants.
+- 📝 **Documentation** — `DESIGN/chunking_methodology.md` : méthodologie complète des deux niveaux de chunking (graph extraction vs RAG sémantique).
+
+**Fichiers modifiés :** `extractor.py`, `ontology.py`, `graph.py`, `server.py`, `config.py`, `commands.py`, `shell.py`, `.env.example`
+
 ### v0.5.2 — 9 février 2026
 
 **Q&A — Fallback RAG-only + Tokeniser robuste + Logs décisionnels**
@@ -751,4 +766,4 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
 ---
 
-*Graph Memory v0.5.2 — Février 2026*
+*Graph Memory v0.6.0 — Février 2026*

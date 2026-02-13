@@ -68,7 +68,7 @@ temp/
 *.tmp
 
 # === Données métier (confidentielles) ===
-/MATIERE/
+/JURIDIQUE/
 
 # === Documents internes (design, specs) ===
 /DESIGN/

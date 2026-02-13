@@ -314,7 +314,9 @@ async def memory_ingest(
     content_base64: str,
     filename: str,
     metadata: Optional[Dict[str, Any]] = None,
-    force: bool = False
+    force: bool = False,
+    source_path: Optional[str] = None,
+    source_modified_at: Optional[str] = None
 ) -> dict:
     """
     Ingère un document dans une mémoire.
@@ -324,12 +326,21 @@ async def memory_ingest(
     2. Analysé par le LLM pour extraire entités/relations
     3. Les entités et relations sont ajoutées au graphe
     
+    Métadonnées enrichies stockées sur le nœud Document :
+    - hash SHA-256 (déduplication)
+    - taille en bytes, longueur du texte extrait
+    - type de fichier (extension)
+    - chemin source et date de modification source (si fournis)
+    - stats d'extraction (entités, relations, chunks)
+    
     Args:
         memory_id: ID de la mémoire cible
         content_base64: Contenu du document encodé en base64
         filename: Nom du fichier
         metadata: Métadonnées additionnelles (optionnel)
         force: Si True, réingère même si le document existe déjà
+        source_path: Chemin complet d'origine du fichier (ex: "legal/contracts/CGA.pdf")
+        source_modified_at: Date de dernière modification du fichier source (ISO 8601, ex: "2026-01-15T10:30:00")
         
     Returns:
         Résultat de l'ingestion avec statistiques
@@ -387,15 +398,21 @@ async def memory_ingest(
             }
         
         # Extraction des entités/relations via LLM avec l'ontologie de la mémoire
+        # Utilise extract_with_ontology_chunked() qui gère automatiquement :
+        # - Documents courts (< EXTRACTION_CHUNK_SIZE) → 1 seul appel LLM
+        # - Documents longs → N appels séquentiels avec contexte cumulatif
         if not memory.ontology:
             return {
                 "status": "error",
                 "message": f"La mémoire '{memory_id}' n'a pas d'ontologie définie. "
                            f"Recréez-la avec une ontologie valide."
             }
-        extraction = await get_extractor().extract_with_ontology(text, memory.ontology)
+        extraction = await get_extractor().extract_with_ontology_chunked(text, memory.ontology)
         
-        # Créer le document dans le graphe
+        # Déduire le type de fichier depuis l'extension
+        file_ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else ''
+        
+        # Créer le document dans le graphe avec métadonnées enrichies
         doc_id = str(uuid.uuid4())
         document = await get_graph().add_document(
             memory_id=memory_id,
@@ -403,7 +420,12 @@ async def memory_ingest(
             uri=s3_result["uri"],
             filename=filename,
             doc_hash=doc_hash,
-            metadata=metadata
+            metadata=metadata,
+            source_path=source_path,
+            source_modified_at=source_modified_at,
+            size_bytes=len(content),
+            text_length=len(text),
+            content_type=file_ext
         )
         
         # Ajouter les entités et relations
@@ -1142,46 +1164,58 @@ async def document_list(memory_id: str) -> dict:
 
 
 @mcp.tool()
-async def document_get(memory_id: str, document_id: str) -> dict:
+async def document_get(
+    memory_id: str,
+    document_id: str,
+    include_content: bool = False
+) -> dict:
     """
-    Récupère les informations et le contenu d'un document.
+    Récupère les métadonnées d'un document, et optionnellement son contenu.
+    
+    Par défaut, retourne uniquement les métadonnées (rapide, pas de téléchargement S3).
+    Passez include_content=True pour télécharger et inclure le contenu du document.
     
     Args:
         memory_id: ID de la mémoire
         document_id: ID du document
+        include_content: Si True, télécharge et inclut le contenu S3 (lent). Défaut: False.
         
     Returns:
-        Métadonnées et contenu du document
+        Métadonnées du document (et contenu si demandé)
     """
     try:
-        # Récupérer les infos du document depuis le graphe
+        # Récupérer les infos du document depuis le graphe (rapide, pas de S3)
         doc_info = await get_graph().get_document(memory_id, document_id)
         
         if not doc_info:
             return {"status": "error", "message": f"Document '{document_id}' non trouvé"}
         
-        # Récupérer le contenu depuis S3
-        content = None
-        if doc_info.get("uri"):
-            try:
-                # Extraire memory_id et clé de l'URI
-                uri = doc_info["uri"]
-                content_bytes = await get_storage().download_document(memory_id, uri)
-                content = content_bytes.decode('utf-8', errors='ignore')
-            except Exception as e:
-                content = f"[Erreur lecture S3: {e}]"
-        
-        return {
+        result = {
             "status": "ok",
             "document": {
                 "id": doc_info.get("id"),
                 "filename": doc_info.get("filename"),
                 "uri": doc_info.get("uri"),
                 "hash": doc_info.get("hash"),
-                "ingested_at": doc_info.get("ingested_at")
+                "ingested_at": doc_info.get("ingested_at"),
+                "source_path": doc_info.get("source_path"),
+                "source_modified_at": doc_info.get("source_modified_at"),
+                "size_bytes": doc_info.get("size_bytes", 0),
+                "text_length": doc_info.get("text_length", 0),
+                "content_type": doc_info.get("content_type"),
             },
-            "content": content
         }
+        
+        # Télécharger le contenu S3 seulement si demandé
+        if include_content and doc_info.get("uri"):
+            try:
+                uri = doc_info["uri"]
+                content_bytes = await get_storage().download_document(memory_id, uri)
+                result["content"] = content_bytes.decode('utf-8', errors='ignore')
+            except Exception as e:
+                result["content"] = f"[Erreur lecture S3: {e}]"
+        
+        return result
     except Exception as e:
         return {"status": "error", "message": str(e)}
 

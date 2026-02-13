@@ -527,15 +527,24 @@ async def cmd_ingest(client: MCPClient, state: dict, args: str):
     console.print(f"[dim]📥 Ingestion de {filename} dans {mem}...[/dim]")
 
     try:
+        from datetime import datetime, timezone
+
         with open(file_path, "rb") as f:
             content_bytes = f.read()
         content_b64 = base64.b64encode(content_bytes).decode("utf-8")
+        
+        # Métadonnées enrichies : chemin source absolu et date de modification
+        source_path = os.path.abspath(file_path)
+        mtime = os.path.getmtime(file_path)
+        source_modified_at = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
 
         result = await client.call_tool("memory_ingest", {
             "memory_id": mem,
             "content_base64": content_b64,
             "filename": filename,
             "force": force,
+            "source_path": source_path,
+            "source_modified_at": source_modified_at,
         })
 
         if result.get("status") == "ok":
@@ -685,15 +694,23 @@ async def cmd_ingestdir(client: MCPClient, state: dict, args: str):
 
         console.print(f"[dim][{i}/{len(to_ingest)}] 📥 {f['filename']}...[/dim]")
         try:
+            from datetime import datetime, timezone
+
             with open(f["path"], "rb") as fh:
                 content_bytes = fh.read()
             content_b64 = base64.b64encode(content_bytes).decode("utf-8")
+            
+            # Métadonnées enrichies : chemin relatif dans l'arborescence + date de modification
+            mtime = os.path.getmtime(f["path"])
+            source_modified_at = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
 
             result = await client.call_tool("memory_ingest", {
                 "memory_id": mem,
                 "content_base64": content_b64,
                 "filename": f["filename"],
                 "force": force_mode,
+                "source_path": f["rel_path"],
+                "source_modified_at": source_modified_at,
             })
 
             if result.get("status") == "ok":
