@@ -1189,6 +1189,192 @@ def token_set_memories(ctx, hash_prefix, memory_ids):
 
 
 # =============================================================================
+# Backup / Restore
+# =============================================================================
+
+@cli.group()
+def backup():
+    """💾 Backup et restauration des mémoires."""
+    pass
+
+
+@backup.command("create")
+@click.argument("memory_id")
+@click.option("--description", "-d", default=None, help="Description du backup")
+@click.pass_context
+def backup_create(ctx, memory_id, description):
+    """💾 Créer un backup complet d'une mémoire."""
+    async def _run():
+        try:
+            from .display import show_backup_result
+            client = MCPClient(ctx.obj["url"], ctx.obj["token"])
+            params = {"memory_id": memory_id}
+            if description:
+                params["description"] = description
+            console.print(f"[dim]💾 Backup de '{memory_id}' en cours...[/dim]")
+            result = await client.call_tool("backup_create", params)
+            if result.get("status") == "ok":
+                show_backup_result(result)
+            else:
+                show_error(result.get("message", str(result)))
+        except Exception as e:
+            show_error(str(e))
+    asyncio.run(_run())
+
+
+@backup.command("list")
+@click.argument("memory_id", required=False, default=None)
+@click.pass_context
+def backup_list(ctx, memory_id):
+    """📋 Lister les backups disponibles."""
+    async def _run():
+        try:
+            from .display import show_backups_table
+            client = MCPClient(ctx.obj["url"], ctx.obj["token"])
+            params = {}
+            if memory_id:
+                params["memory_id"] = memory_id
+            result = await client.call_tool("backup_list", params)
+            if result.get("status") == "ok":
+                show_backups_table(result.get("backups", []))
+            else:
+                show_error(result.get("message", str(result)))
+        except Exception as e:
+            show_error(str(e))
+    asyncio.run(_run())
+
+
+@backup.command("restore")
+@click.argument("backup_id")
+@click.option("--force", "-f", is_flag=True, help="Pas de confirmation")
+@click.pass_context
+def backup_restore(ctx, backup_id, force):
+    """📥 Restaurer une mémoire depuis un backup.
+
+    \b
+    ⚠️ La mémoire NE DOIT PAS exister (supprimez-la d'abord si nécessaire).
+
+    \b
+    Exemples:
+      backup restore JURIDIQUE/2026-02-16T15-30-00
+    """
+    async def _run():
+        try:
+            from .display import show_restore_result
+            if not force and not Confirm.ask(
+                f"[yellow]Restaurer depuis '{backup_id}' ?[/yellow]\n"
+                f"[dim]La mémoire ne doit pas exister.[/dim]"
+            ):
+                console.print("[dim]Annulé.[/dim]")
+                return
+            client = MCPClient(ctx.obj["url"], ctx.obj["token"])
+            console.print(f"[dim]📥 Restauration de '{backup_id}' en cours...[/dim]")
+            result = await client.call_tool("backup_restore", {"backup_id": backup_id})
+            if result.get("status") == "ok":
+                show_restore_result(result)
+            else:
+                show_error(result.get("message", str(result)))
+        except Exception as e:
+            show_error(str(e))
+    asyncio.run(_run())
+
+
+@backup.command("download")
+@click.argument("backup_id")
+@click.option("--output", "-o", default=None, help="Fichier de sortie (défaut: backup-{id}.tar.gz)")
+@click.option("--include-documents", is_flag=True, help="Inclure les documents originaux")
+@click.pass_context
+def backup_download(ctx, backup_id, output, include_documents):
+    """📦 Télécharger un backup en archive tar.gz."""
+    async def _run():
+        try:
+            client = MCPClient(ctx.obj["url"], ctx.obj["token"])
+            console.print(f"[dim]📦 Téléchargement de '{backup_id}'...[/dim]")
+            result = await client.call_tool("backup_download", {
+                "backup_id": backup_id,
+                "include_documents": include_documents,
+            })
+            if result.get("status") == "ok":
+                # Décoder et écrire le fichier
+                content_b64 = result.get("content_base64", "")
+                archive_bytes = base64.b64decode(content_b64)
+                
+                out_file = output or result.get("filename", f"backup-{backup_id.replace('/', '-')}.tar.gz")
+                with open(out_file, "wb") as f:
+                    f.write(archive_bytes)
+                
+                show_success(f"Archive sauvée: {out_file} ({_format_size_simple(len(archive_bytes))})")
+            else:
+                show_error(result.get("message", str(result)))
+        except Exception as e:
+            show_error(str(e))
+    asyncio.run(_run())
+
+
+@backup.command("delete")
+@click.argument("backup_id")
+@click.option("--force", "-f", is_flag=True, help="Pas de confirmation")
+@click.pass_context
+def backup_delete(ctx, backup_id, force):
+    """🗑️  Supprimer un backup."""
+    async def _run():
+        if not force and not Confirm.ask(f"[yellow]Supprimer le backup '{backup_id}' ?[/yellow]"):
+            console.print("[dim]Annulé.[/dim]")
+            return
+        try:
+            client = MCPClient(ctx.obj["url"], ctx.obj["token"])
+            result = await client.call_tool("backup_delete", {"backup_id": backup_id})
+            if result.get("status") == "ok":
+                show_success(f"Backup supprimé: {backup_id} ({result.get('files_deleted', 0)} fichiers)")
+            else:
+                show_error(result.get("message", str(result)))
+        except Exception as e:
+            show_error(str(e))
+    asyncio.run(_run())
+
+
+@backup.command("restore-file")
+@click.argument("archive_path", type=click.Path(exists=True))
+@click.option("--force", "-f", is_flag=True, help="Pas de confirmation")
+@click.pass_context
+def backup_restore_file(ctx, archive_path, force):
+    """📦 Restaurer depuis une archive tar.gz locale (avec documents S3)."""
+    import os
+    file_size = os.path.getsize(archive_path)
+    size_mb = file_size / (1024 * 1024)
+    
+    if not force and not Confirm.ask(
+        f"[yellow]Restaurer depuis '{archive_path}' ({size_mb:.1f} MB) ?\n"
+        f"La mémoire ne doit pas exister.[/yellow]"
+    ):
+        console.print("[dim]Annulé.[/dim]")
+        return
+    
+    async def _run():
+        try:
+            import base64
+            from .display import show_restore_result
+            console.print(f"📦 Lecture de l'archive ({size_mb:.1f} MB)...")
+            with open(archive_path, "rb") as f:
+                archive_bytes = f.read()
+            archive_b64 = base64.b64encode(archive_bytes).decode("ascii")
+            
+            console.print("📥 Envoi au serveur pour restauration...")
+            client = MCPClient(ctx.obj["url"], ctx.obj["token"])
+            result = await client.call_tool("backup_restore_archive", {
+                "archive_base64": archive_b64
+            })
+            
+            if result.get("status") == "ok":
+                show_restore_result(result)
+            else:
+                show_error(result.get("message", str(result)))
+        except Exception as e:
+            show_error(str(e))
+    asyncio.run(_run())
+
+
+# =============================================================================
 # Shell (délègue à shell.py)
 # =============================================================================
 

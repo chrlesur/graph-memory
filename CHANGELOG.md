@@ -7,6 +7,38 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.2.0] — 2026-02-16
+
+### 💾 Backup / Restore complet + Fix storage_check
+
+#### Ajouté
+- **Système de Backup/Restore** (`backup.py`, `server.py`, `commands.py`, `shell.py`, `display.py`) — 7 nouveaux outils MCP :
+  - `backup_create` : Exporte graphe Neo4j (entités, relations, documents) + vecteurs Qdrant → S3. Politique de rétention configurable (`BACKUP_RETENTION_COUNT`).
+  - `backup_list` : Liste les backups disponibles avec statistiques (entités, relations, vecteurs, docs).
+  - `backup_restore` : Restaure depuis un backup S3 (graphe + vecteurs), sans re-extraction LLM (~0.3s).
+  - `backup_download` : Télécharge un backup en archive tar.gz (light ou avec documents originaux).
+  - `backup_delete` : Supprime un backup de S3.
+  - `backup_restore_archive` : **Restaure depuis une archive tar.gz locale** — re-uploade les documents S3 inclus dans l'archive + restaure graphe + vecteurs. Cycle complet validé : backup → download tar.gz → suppression totale serveur → restore depuis fichier local.
+- **CLI backup complète** — 6 commandes Click (`backup create/list/restore/download/delete/restore-file`) + commandes shell interactif correspondantes.
+- **Affichage Rich** (`display.py`) — `show_backup_result`, `show_backups_table`, `show_restore_result` pour un rendu formaté des opérations backup.
+- **Configuration backup** (`.env.example`, `config.py`) — `BACKUP_RETENTION_COUNT` (défaut: 5 backups par mémoire).
+
+#### Corrigé
+- **`storage_check` : faux-positifs orphelins quand scopé** — `storage check JURIDIQUE` signalait 42 "orphelins" (les documents des AUTRES mémoires + les backups). Deux fixes :
+  - Les fichiers `_backups/` sont maintenant exclus de la détection d'orphelins (gérés par `backup_list`).
+  - Quand scopé à une mémoire, la détection d'orphelins charge les URIs de TOUTES les mémoires (pas seulement la scopée). Les documents des autres mémoires ne sont plus signalés à tort.
+
+#### Architecture backup
+- Format backup S3 : `_backups/{memory_id}/{timestamp}/` contenant `manifest.json`, `graph_data.json`, `qdrant_vectors.jsonl`, `document_keys.json`.
+- Format archive tar.gz : même structure + dossier optionnel `documents/` avec les fichiers originaux.
+- Couplage strict : si Qdrant ou Neo4j échoue pendant la restauration, l'opération est annulée.
+- Checksum SHA-256 vérifié lors de la restauration depuis archive.
+
+#### Fichiers ajoutés/modifiés
+`src/mcp_memory/core/backup.py` (nouveau), `src/mcp_memory/server.py`, `src/mcp_memory/config.py`, `scripts/cli/commands.py`, `scripts/cli/shell.py`, `scripts/cli/display.py`, `.env.example`, `VERSION`, `src/mcp_memory/__init__.py`
+
+---
+
 ## [1.1.0] — 2026-02-16
 
 ### 🔒 Rate Limiting + Analyse de Risques Sécurité

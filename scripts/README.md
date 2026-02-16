@@ -133,6 +133,46 @@ python scripts/mcp_cli.py storage cleanup -f   # Suppression réelle
 python scripts/mcp_cli.py ontologies
 ```
 
+### 💾 Backup / Restore
+
+```bash
+# Créer un backup complet (graphe + vecteurs Qdrant + manifest)
+python scripts/mcp_cli.py backup create JURIDIQUE
+python scripts/mcp_cli.py backup create JURIDIQUE -d "Avant migration v2"
+
+# Lister les backups (tous ou par mémoire)
+python scripts/mcp_cli.py backup list
+python scripts/mcp_cli.py backup list JURIDIQUE
+
+# Restaurer depuis un backup S3 (la mémoire ne doit pas exister)
+python scripts/mcp_cli.py backup restore "JURIDIQUE/2026-02-16T15-33-48"
+
+# Télécharger un backup en archive tar.gz
+python scripts/mcp_cli.py backup download "JURIDIQUE/2026-02-16T15-33-48"
+
+# Télécharger AVEC les documents originaux (PDF, DOCX…) pour restore offline
+python scripts/mcp_cli.py backup download "JURIDIQUE/2026-02-16T15-33-48" --include-documents
+
+# Spécifier un fichier de sortie
+python scripts/mcp_cli.py backup download "JURIDIQUE/2026-02-16T15-33-48" -o backup-juridique.tar.gz
+
+# Supprimer un backup
+python scripts/mcp_cli.py backup delete "JURIDIQUE/2026-02-16T15-33-48"
+python scripts/mcp_cli.py backup delete "JURIDIQUE/2026-02-16T15-33-48" -f  # Sans confirmation
+
+# Restaurer depuis une archive tar.gz locale (cycle complet offline)
+python scripts/mcp_cli.py backup restore-file ./backup-juridique.tar.gz
+```
+
+**Options de `backup download` :**
+
+| Option                  | Description                                                  | Exemple                            |
+| ----------------------- | ------------------------------------------------------------ | ---------------------------------- |
+| `--include-documents`   | Inclut les docs originaux (PDF, DOCX…) dans l'archive tar.gz | `--include-documents`              |
+| `-o` / `--output`       | Chemin du fichier de sortie                                  | `-o backup-juridique.tar.gz`       |
+
+> **Note v1.2.0** : Sans `--include-documents`, l'archive contient uniquement les métadonnées (graphe + vecteurs). Avec l'option, elle permet un restore complet hors-ligne via `restore-file`.
+
 ### 🔑 Tokens d'accès
 
 ```bash
@@ -245,6 +285,29 @@ Fonctionnalités :
 | `token-ungrant <hash> <mem1> [mem2]`                      | Retirer des mémoires                             |
 | `token-set <hash> [mem1] [mem2]`                          | Remplacer les mémoires (vide = toutes)           |
 
+#### 💾 Backup / Restore
+
+| Commande                                 | Description                                                      |
+| ---------------------------------------- | ---------------------------------------------------------------- |
+| `backup-create [id] [description]`       | Créer un backup (mémoire courante ou spécifiée)                  |
+| `backup-list [id]`                       | Lister les backups disponibles                                   |
+| `backup-restore <backup_id>`             | Restaurer depuis un backup S3                                    |
+| `backup-download <backup_id> [fichier]`  | Télécharger en tar.gz (`--include-documents` pour offline)       |
+| `backup-delete <backup_id>`              | Supprimer un backup                                              |
+
+> **`--include-documents`** : ajouter à `backup-download` pour inclure les documents originaux (PDF, DOCX…) dans l'archive. Sans cette option, seuls graphe + vecteurs sont inclus.
+
+**Exemples backup dans le shell :**
+
+```
+🧠 JURIDIQUE: backup-create
+🧠 JURIDIQUE: backup-create JURIDIQUE "Avant migration v2"
+🧠 JURIDIQUE: backup-list
+🧠 JURIDIQUE: backup-download JURIDIQUE/2026-02-16T15-33-48 --include-documents
+🧠 JURIDIQUE: backup-restore JURIDIQUE/2026-02-16T15-33-48
+🧠 JURIDIQUE: backup-delete JURIDIQUE/2026-02-16T15-33-48
+```
+
 **Exemples token dans le shell :**
 
 ```
@@ -353,4 +416,4 @@ pip install httpx httpx-sse click rich prompt_toolkit
 
 ---
 
-*Graph Memory CLI v1.0.0 — Février 2026*
+*Graph Memory CLI v1.2.0 — Février 2026*

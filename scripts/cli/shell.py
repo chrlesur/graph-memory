@@ -69,7 +69,9 @@ SHELL_COMMANDS = [
     "tokens", "token-create", "token-revoke", "token-grant",
     "token-ungrant", "token-set",
     "limit", "delete", "debug", "clear", "exit", "quit",
-    "--json",
+    "--json", "--include-documents", "--force",
+    "backup", "backup-create", "backup-list", "backup-restore",
+    "backup-download", "backup-delete",
 ]
 
 
@@ -1074,6 +1076,142 @@ async def cmd_token_set(client: MCPClient, state: dict, args: str):
 # Handlers divers
 # =============================================================================
 
+# =============================================================================
+# Handlers backup
+# =============================================================================
+
+async def cmd_backup_create(client: MCPClient, state: dict, args: str):
+    """Crée un backup de la mémoire courante ou spécifiée."""
+    from .display import show_backup_result
+    
+    parts = args.split(maxsplit=1) if args else []
+    mem = parts[0] if parts else state.get("memory")
+    description = parts[1].strip('"').strip("'") if len(parts) > 1 else None
+    
+    if not mem:
+        show_warning("Usage: backup-create [memory_id] [description]")
+        return
+    
+    console.print(f"[dim]💾 Backup de '{mem}' en cours...[/dim]")
+    params = {"memory_id": mem}
+    if description:
+        params["description"] = description
+    
+    result = await client.call_tool("backup_create", params)
+    if result.get("status") == "ok":
+        show_backup_result(result)
+    else:
+        show_error(result.get("message", str(result)))
+
+
+async def cmd_backup_list(client: MCPClient, state: dict, args: str):
+    """Liste les backups disponibles."""
+    from .display import show_backups_table
+    
+    params = {}
+    mem = args.strip() if args.strip() else state.get("memory")
+    if mem:
+        params["memory_id"] = mem
+    
+    result = await client.call_tool("backup_list", params)
+    if result.get("status") == "ok":
+        show_backups_table(result.get("backups", []))
+    else:
+        show_error(result.get("message", str(result)))
+
+
+async def cmd_backup_restore(client: MCPClient, state: dict, args: str):
+    """Restaure une mémoire depuis un backup."""
+    from rich.prompt import Confirm
+    from .display import show_restore_result
+    
+    if not args:
+        show_warning("Usage: backup-restore <backup_id>")
+        console.print("[dim]Utilisez 'backup-list' pour voir les backup_id[/dim]")
+        return
+    
+    backup_id = args.strip()
+    if not Confirm.ask(f"[yellow]Restaurer depuis '{backup_id}' ?[/yellow]"):
+        console.print("[dim]Annulé.[/dim]")
+        return
+    
+    console.print(f"[dim]📥 Restauration de '{backup_id}'...[/dim]")
+    result = await client.call_tool("backup_restore", {"backup_id": backup_id})
+    if result.get("status") == "ok":
+        show_restore_result(result)
+    else:
+        show_error(result.get("message", str(result)))
+
+
+async def cmd_backup_download(client: MCPClient, state: dict, args: str):
+    """
+    Télécharge un backup en archive tar.gz.
+    
+    Usage: backup-download <backup_id> [output_file] [--include-documents]
+    
+    --include-documents : inclut les documents originaux (PDF, DOCX...) dans l'archive.
+                          Sans cette option, seuls les métadonnées (graphe + vecteurs) sont incluses.
+                          Avec cette option, l'archive permet un restore complet hors-ligne.
+    """
+    if not args:
+        show_warning("Usage: backup-download <backup_id> [output_file] [--include-documents]")
+        console.print("[dim]  --include-documents : inclut les docs originaux (PDF, DOCX…) pour restore offline[/dim]")
+        console.print("[dim]  Utilisez 'backup-list' pour voir les backup_id[/dim]")
+        return
+    
+    # Détecter --include-documents
+    include_documents = "--include-documents" in args
+    clean_args = args.replace("--include-documents", "").strip()
+    
+    parts = clean_args.split(maxsplit=1)
+    backup_id = parts[0]
+    output = parts[1].strip() if len(parts) > 1 else None
+    
+    if include_documents:
+        console.print(f"[dim]📦 Téléchargement de '{backup_id}' [yellow](avec documents)[/yellow]...[/dim]")
+    else:
+        console.print(f"[dim]📦 Téléchargement de '{backup_id}'...[/dim]")
+    
+    params = {"backup_id": backup_id}
+    if include_documents:
+        params["include_documents"] = True
+    
+    result = await client.call_tool("backup_download", params)
+    if result.get("status") == "ok":
+        content_b64 = result.get("content_base64", "")
+        archive_bytes = base64.b64decode(content_b64)
+        out_file = output or result.get("filename", f"backup-{backup_id.replace('/', '-')}.tar.gz")
+        with open(out_file, "wb") as f:
+            f.write(archive_bytes)
+        show_success(f"Archive: {out_file} ({len(archive_bytes)} bytes)")
+    else:
+        show_error(result.get("message", str(result)))
+
+
+async def cmd_backup_delete(client: MCPClient, state: dict, args: str):
+    """Supprime un backup."""
+    from rich.prompt import Confirm
+    
+    if not args:
+        show_warning("Usage: backup-delete <backup_id>")
+        return
+    
+    backup_id = args.strip()
+    if not Confirm.ask(f"[yellow]Supprimer le backup '{backup_id}' ?[/yellow]"):
+        console.print("[dim]Annulé.[/dim]")
+        return
+    
+    result = await client.call_tool("backup_delete", {"backup_id": backup_id})
+    if result.get("status") == "ok":
+        show_success(f"Backup supprimé: {backup_id} ({result.get('files_deleted', 0)} fichiers)")
+    else:
+        show_error(result.get("message", str(result)))
+
+
+# =============================================================================
+# Handlers divers
+# =============================================================================
+
 async def cmd_delete(client: MCPClient, state: dict, args: str):
     """Supprime une mémoire ou un document."""
     from rich.prompt import Confirm
@@ -1147,6 +1285,12 @@ def run_shell(url: str, token: str):
         "token-grant <h> <m>":  "Autoriser un token à accéder à des mémoires",
         "token-ungrant <h> <m>":"Retirer l'accès d'un token à des mémoires",
         "token-set <h> [m]":    "Remplacer les mémoires d'un token (vide=toutes)",
+        # --- Backup ---
+        "backup-create [id]":   "Créer un backup (mémoire courante ou spécifiée)",
+        "backup-list [id]":     "Lister les backups disponibles",
+        "backup-restore <bid>": "Restaurer depuis un backup",
+        "backup-download <bid>":"Télécharger en tar.gz (--include-documents pour offline)",
+        "backup-delete <bid>":  "Supprimer un backup",
         # --- Config ---
         "limit [N]":    "Voir/changer le limit de recherche (défaut: 10)",
         "debug":        "Activer/désactiver le debug",
@@ -1298,6 +1442,22 @@ def run_shell(url: str, token: str):
 
             elif command == "token-set":
                 asyncio.run(cmd_token_set(client, state, args))
+
+            # --- Backup commands ---
+            elif command == "backup-create":
+                asyncio.run(cmd_backup_create(client, state, args))
+
+            elif command == "backup-list":
+                asyncio.run(cmd_backup_list(client, state, args))
+
+            elif command == "backup-restore":
+                asyncio.run(cmd_backup_restore(client, state, args))
+
+            elif command == "backup-download":
+                asyncio.run(cmd_backup_download(client, state, args))
+
+            elif command == "backup-delete":
+                asyncio.run(cmd_backup_delete(client, state, args))
 
             else:
                 show_error(f"Commande inconnue: '{command}'. Tapez 'help'.")

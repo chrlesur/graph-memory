@@ -1098,6 +1098,291 @@ class GraphService:
             }
     
     # =========================================================================
+    # Export / Import (Backup)
+    # =========================================================================
+    
+    async def export_memory_data(self, memory_id: str) -> Dict[str, Any]:
+        """
+        Exporte toutes les données d'une mémoire pour backup.
+        
+        Retourne un dict contenant :
+        - memory: propriétés du nœud Memory
+        - documents: liste des nœuds Document (propriétés)
+        - entities: liste des nœuds Entity (propriétés)
+        - relations: liste des relations RELATED_TO (from, to, propriétés)
+        - mentions: liste des relations MENTIONS (doc_id, entity_name, count)
+        
+        Args:
+            memory_id: ID de la mémoire à exporter
+            
+        Returns:
+            Dictionnaire complet des données de la mémoire
+        """
+        async with self.session() as session:
+            # 1. Exporter le nœud Memory
+            mem_result = await session.run(
+                "MATCH (m:Memory {id: $id}) RETURN m",
+                id=memory_id
+            )
+            mem_record = await mem_result.single()
+            if not mem_record:
+                raise ValueError(f"Mémoire '{memory_id}' non trouvée")
+            
+            memory_props = dict(mem_record["m"])
+            # Convertir les types Neo4j en types sérialisables
+            for k, v in memory_props.items():
+                if hasattr(v, 'to_native'):
+                    memory_props[k] = v.to_native().isoformat()
+            
+            # 2. Exporter les Documents
+            docs_result = await session.run(
+                """
+                MATCH (d:Document {memory_id: $memory_id})
+                RETURN d
+                ORDER BY d.ingested_at
+                """,
+                memory_id=memory_id
+            )
+            documents = []
+            async for record in docs_result:
+                props = dict(record["d"])
+                for k, v in props.items():
+                    if hasattr(v, 'to_native'):
+                        props[k] = v.to_native().isoformat()
+                documents.append(props)
+            
+            # 3. Exporter les Entities
+            ents_result = await session.run(
+                """
+                MATCH (e:Entity {memory_id: $memory_id})
+                RETURN e
+                ORDER BY e.name
+                """,
+                memory_id=memory_id
+            )
+            entities = []
+            async for record in ents_result:
+                props = dict(record["e"])
+                for k, v in props.items():
+                    if hasattr(v, 'to_native'):
+                        props[k] = v.to_native().isoformat()
+                    elif isinstance(v, list):
+                        props[k] = list(v)  # Convertir les listes Neo4j
+                entities.append(props)
+            
+            # 4. Exporter les relations RELATED_TO
+            rels_result = await session.run(
+                """
+                MATCH (from:Entity {memory_id: $memory_id})-[r:RELATED_TO]->(to:Entity {memory_id: $memory_id})
+                RETURN from.name as from_name, to.name as to_name,
+                       r.type as rel_type, r.description as description,
+                       r.weight as weight, r.source_doc as source_doc,
+                       r.created_at as created_at
+                """,
+                memory_id=memory_id
+            )
+            relations = []
+            async for record in rels_result:
+                rel = {
+                    "from_name": record["from_name"],
+                    "to_name": record["to_name"],
+                    "type": record["rel_type"],
+                    "description": record["description"],
+                    "weight": record["weight"],
+                    "source_doc": record["source_doc"],
+                }
+                if record["created_at"] and hasattr(record["created_at"], 'to_native'):
+                    rel["created_at"] = record["created_at"].to_native().isoformat()
+                relations.append(rel)
+            
+            # 5. Exporter les relations MENTIONS
+            ments_result = await session.run(
+                """
+                MATCH (d:Document {memory_id: $memory_id})-[r:MENTIONS]->(e:Entity {memory_id: $memory_id})
+                RETURN d.id as doc_id, e.name as entity_name, r.count as count
+                """,
+                memory_id=memory_id
+            )
+            mentions = []
+            async for record in ments_result:
+                mentions.append({
+                    "doc_id": record["doc_id"],
+                    "entity_name": record["entity_name"],
+                    "count": record["count"]
+                })
+            
+            print(f"📦 [Graph Export] {memory_id}: {len(documents)} docs, "
+                  f"{len(entities)} entités, {len(relations)} relations, "
+                  f"{len(mentions)} mentions", file=sys.stderr)
+            
+            return {
+                "memory": memory_props,
+                "documents": documents,
+                "entities": entities,
+                "relations": relations,
+                "mentions": mentions
+            }
+    
+    async def import_memory_data(self, data: Dict[str, Any]) -> Dict[str, int]:
+        """
+        Importe les données d'une mémoire depuis un backup.
+        
+        Recrée tous les nœuds et relations tels qu'ils étaient.
+        La mémoire NE DOIT PAS exister (erreur sinon).
+        
+        Args:
+            data: Dictionnaire issu de export_memory_data()
+            
+        Returns:
+            Compteurs : memory, documents, entities, relations, mentions créés
+        """
+        memory_props = data["memory"]
+        memory_id = memory_props["id"]
+        
+        # Vérifier que la mémoire n'existe pas
+        existing = await self.get_memory(memory_id)
+        if existing:
+            raise ValueError(
+                f"La mémoire '{memory_id}' existe déjà. "
+                f"Supprimez-la d'abord avant de restaurer."
+            )
+        
+        counters = {
+            "memory": 0,
+            "documents": 0,
+            "entities": 0,
+            "relations": 0,
+            "mentions": 0
+        }
+        
+        async with self.session() as session:
+            # 1. Recréer le nœud Memory
+            await session.run(
+                """
+                CREATE (m:Memory {
+                    id: $id,
+                    name: $name,
+                    description: $description,
+                    ontology: $ontology,
+                    ontology_uri: $ontology_uri,
+                    namespace: $namespace,
+                    owner_token_hash: $owner_token_hash,
+                    created_at: datetime($created_at)
+                })
+                """,
+                id=memory_props["id"],
+                name=memory_props.get("name", ""),
+                description=memory_props.get("description"),
+                ontology=memory_props.get("ontology", "default"),
+                ontology_uri=memory_props.get("ontology_uri"),
+                namespace=memory_props.get("namespace", self._ns(memory_id)),
+                owner_token_hash=memory_props.get("owner_token_hash"),
+                created_at=memory_props.get("created_at", datetime.utcnow().isoformat())
+            )
+            counters["memory"] = 1
+            
+            # 2. Recréer les Documents
+            for doc in data.get("documents", []):
+                await session.run(
+                    """
+                    CREATE (d:Document {
+                        id: $id,
+                        memory_id: $memory_id,
+                        uri: $uri,
+                        filename: $filename,
+                        hash: $hash,
+                        ingested_at: datetime($ingested_at),
+                        metadata_json: $metadata_json,
+                        source_path: $source_path,
+                        source_modified_at: $source_modified_at,
+                        size_bytes: $size_bytes,
+                        text_length: $text_length,
+                        content_type: $content_type
+                    })
+                    """,
+                    id=doc["id"],
+                    memory_id=doc.get("memory_id", memory_id),
+                    uri=doc.get("uri", ""),
+                    filename=doc.get("filename", ""),
+                    hash=doc.get("hash", ""),
+                    ingested_at=doc.get("ingested_at", datetime.utcnow().isoformat()),
+                    metadata_json=doc.get("metadata_json", "{}"),
+                    source_path=doc.get("source_path", ""),
+                    source_modified_at=doc.get("source_modified_at", ""),
+                    size_bytes=doc.get("size_bytes", 0),
+                    text_length=doc.get("text_length", 0),
+                    content_type=doc.get("content_type", "")
+                )
+                counters["documents"] += 1
+            
+            # 3. Recréer les Entities
+            for entity in data.get("entities", []):
+                await session.run(
+                    """
+                    CREATE (e:Entity {
+                        name: $name,
+                        memory_id: $memory_id,
+                        type: $type,
+                        description: $description,
+                        source_docs: $source_docs,
+                        mention_count: $mention_count,
+                        created_at: datetime($created_at),
+                        updated_at: datetime($updated_at)
+                    })
+                    """,
+                    name=entity["name"],
+                    memory_id=entity.get("memory_id", memory_id),
+                    type=entity.get("type", "Other"),
+                    description=entity.get("description"),
+                    source_docs=entity.get("source_docs", []),
+                    mention_count=entity.get("mention_count", 1),
+                    created_at=entity.get("created_at", datetime.utcnow().isoformat()),
+                    updated_at=entity.get("updated_at", datetime.utcnow().isoformat())
+                )
+                counters["entities"] += 1
+            
+            # 4. Recréer les relations RELATED_TO
+            for rel in data.get("relations", []):
+                await session.run(
+                    """
+                    MATCH (from:Entity {name: $from_name, memory_id: $memory_id})
+                    MATCH (to:Entity {name: $to_name, memory_id: $memory_id})
+                    CREATE (from)-[r:RELATED_TO {
+                        type: $rel_type,
+                        description: $description,
+                        weight: $weight,
+                        source_doc: $source_doc
+                    }]->(to)
+                    """,
+                    from_name=rel["from_name"],
+                    to_name=rel["to_name"],
+                    memory_id=memory_id,
+                    rel_type=rel.get("type", "RELATED_TO"),
+                    description=rel.get("description"),
+                    weight=rel.get("weight", 1.0),
+                    source_doc=rel.get("source_doc")
+                )
+                counters["relations"] += 1
+            
+            # 5. Recréer les relations MENTIONS
+            for mention in data.get("mentions", []):
+                await session.run(
+                    """
+                    MATCH (d:Document {id: $doc_id, memory_id: $memory_id})
+                    MATCH (e:Entity {name: $entity_name, memory_id: $memory_id})
+                    CREATE (d)-[r:MENTIONS {count: $count}]->(e)
+                    """,
+                    doc_id=mention["doc_id"],
+                    entity_name=mention["entity_name"],
+                    memory_id=memory_id,
+                    count=mention.get("count", 1)
+                )
+                counters["mentions"] += 1
+        
+        print(f"📥 [Graph Import] {memory_id}: {counters}", file=sys.stderr)
+        return counters
+    
+    # =========================================================================
     # Statistiques
     # =========================================================================
     

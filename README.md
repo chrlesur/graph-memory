@@ -33,6 +33,12 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
 > Historique complet : voir [CHANGELOG.md](CHANGELOG.md)
 
+### v1.2.0 — 16 février 2026 — 💾 Backup / Restore complet
+- 💾 **Système de Backup/Restore** — 7 outils MCP : `backup_create`, `backup_list`, `backup_restore`, `backup_download`, `backup_delete`, `backup_restore_archive`
+- 📦 **Restore depuis archive tar.gz** — Cycle complet : backup → download → suppression serveur → restore depuis fichier local (avec re-upload S3 des documents)
+- 🐛 **Fix `storage_check`** — Faux-positifs orphelins corrigés (exclusion `_backups/`, scope multi-mémoires)
+- 🔧 **CLI backup complète** — 6 commandes Click + shell interactif
+
 ### v1.1.0 — 16 février 2026 — 🔒 Rate Limiting + Analyse de Risques
 - 🔒 **Rate Limiting WAF** — 4 zones par IP (`caddy-ratelimit`) : SSE 10/min, messages 60/min, API 30/min, global 200/min
 - 📋 **Analyse de Risques Sécurité** — Matrice par route, conformité OWASP Top 10/SecNumCloud/RGPD
@@ -174,11 +180,12 @@ Question en langage naturel
 │  │  • AuthMiddleware (Bearer Token)                               │  │
 │  └────────────────────────────────────────────────────────────────┘  │
 │  ┌────────────────────────────────────────────────────────────────┐  │
-│  │  MCP Tools (21 outils)                                         │  │
+│  │  MCP Tools (27 outils)                                         │  │
 │  │  • memory_create/delete/list/stats                             │  │
 │  │  • memory_ingest/search/get_context                            │  │
 │  │  • question_answer / memory_query                              │  │
 │  │  • document_list/get/delete                                    │  │
+│  │  • backup_create/list/restore/download/delete/restore_archive  │  │
 │  │  • storage_check/storage_cleanup                               │  │
 │  │  • admin_create_token/list_tokens/revoke_token/update_token    │  │
 │  │  • ontology_list • system_health                               │  │
@@ -188,7 +195,7 @@ Question en langage naturel
 │  │  • GraphService (Neo4j)    • StorageService (S3)               │  │
 │  │  • ExtractorService (LLM)  • TokenManager (Auth)               │  │
 │  │  • EmbeddingService (BGE)  • VectorStoreService (Qdrant)       │  │
-│  │  • SemanticChunker                                             │  │
+│  │  • SemanticChunker         • BackupService (Backup/Restore)    │  │
 │  └────────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────┬───────────────────────────────────────┘
                                │
@@ -246,19 +253,19 @@ cp .env.example .env
 
 ### Variables optionnelles (avec valeurs par défaut)
 
-| Variable                     | Défaut         | Description                                    |
-| ---------------------------- | -------------- | ---------------------------------------------- |
-| `LLMAAS_MODEL`               | `gpt-oss:120b` | Modèle LLM                                     |
-| `LLMAAS_MAX_TOKENS`          | `60000`        | Max tokens par réponse                         |
-| `LLMAAS_TEMPERATURE`         | `1.0`          | Température (gpt-oss:120b requiert 1.0)        |
-| `EXTRACTION_MAX_TEXT_LENGTH` | `950000`       | Max caractères envoyés au LLM                  |
-| `MCP_SERVER_PORT`            | `8002`         | Port d'écoute                                  |
-| `MCP_SERVER_DEBUG`           | `false`        | Logs détaillés                                 |
-| `MAX_DOCUMENT_SIZE_MB`       | `50`           | Taille max documents                           |
+| Variable                     | Défaut         | Description                                           |
+| ---------------------------- | -------------- | ----------------------------------------------------- |
+| `LLMAAS_MODEL`               | `gpt-oss:120b` | Modèle LLM                                            |
+| `LLMAAS_MAX_TOKENS`          | `60000`        | Max tokens par réponse                                |
+| `LLMAAS_TEMPERATURE`         | `1.0`          | Température (gpt-oss:120b requiert 1.0)               |
+| `EXTRACTION_MAX_TEXT_LENGTH` | `950000`       | Max caractères envoyés au LLM                         |
+| `MCP_SERVER_PORT`            | `8002`         | Port d'écoute                                         |
+| `MCP_SERVER_DEBUG`           | `false`        | Logs détaillés                                        |
+| `MAX_DOCUMENT_SIZE_MB`       | `50`           | Taille max documents                                  |
 | `RAG_SCORE_THRESHOLD`        | `0.58`         | Score cosinus min. pour un chunk RAG BGE-M3 (0.0-1.0) |
-| `RAG_CHUNK_LIMIT`            | `8`            | Nombre max de chunks retournés par Qdrant      |
-| `CHUNK_SIZE`                 | `500`          | Taille cible en tokens par chunk               |
-| `CHUNK_OVERLAP`              | `50`           | Tokens de chevauchement entre chunks           |
+| `RAG_CHUNK_LIMIT`            | `8`            | Nombre max de chunks retournés par Qdrant             |
+| `CHUNK_SIZE`                 | `500`          | Taille cible en tokens par chunk                      |
+| `CHUNK_OVERLAP`              | `50`           | Tokens de chevauchement entre chunks                  |
 
 Voir `.env.example` pour la liste complète.
 
@@ -283,9 +290,9 @@ docker compose logs waf -f --tail 50
 
 ### Ports exposés
 
-| Service    | Port   | Description                                         |
-| ---------- | ------ | --------------------------------------------------- |
-| **WAF**    | `8080` | **Seul port exposé** — Coraza WAF → Graph Memory    |
+| Service    | Port   | Description                                              |
+| ---------- | ------ | -------------------------------------------------------- |
+| **WAF**    | `8080` | **Seul port exposé** — Coraza WAF → Graph Memory         |
 | Neo4j      | —      | Réseau Docker interne uniquement (debug: 127.0.0.1:7475) |
 | Qdrant     | —      | Réseau Docker interne uniquement (debug: 127.0.0.1:6333) |
 | MCP Server | —      | Réseau Docker interne uniquement (debug: 127.0.0.1:8002) |
@@ -369,31 +376,37 @@ mcp> exit                          # Quitter
 
 ### Tableau complet des commandes
 
-| Fonctionnalité     | CLI Click                       | Shell interactif    |
-| ------------------ | ------------------------------- | ------------------- |
-| État serveur       | `health`                        | `health`            |
-| Lister mémoires    | `memory list`                   | `list`              |
-| Créer mémoire      | `memory create ID -o onto`      | `create ID onto`    |
-| Supprimer mémoire  | `memory delete ID`              | `delete [ID]`       |
-| Info mémoire       | `memory info ID`                | `info`              |
-| Graphe texte       | `memory graph ID`               | `graph [ID]`        |
-| Entités par type   | `memory entities ID`            | `entities`          |
-| Contexte entité    | `memory entity ID NAME`         | `entity NAME`       |
-| Relations par type | `memory relations ID [-t TYPE]` | `relations [TYPE]`  |
-| Lister documents   | `document list ID`              | `docs`              |
-| Ingérer document   | `document ingest ID PATH`       | `ingest PATH`       |
-| Supprimer document | `document delete ID DOC`        | `deldoc DOC`        |
-| Question/Réponse   | `ask ID "question"`             | `ask question`      |
-| Query structuré    | `query ID "question"`           | `query question`    |
-| Vérif. stockage S3 | `storage check [ID]`            | `check [ID]`        |
-| Nettoyage S3       | `storage cleanup [-f]`          | `cleanup [--force]` |
-| Ontologies dispo.  | `ontologies`                    | `ontologies`        |
+| Fonctionnalité     | CLI Click                       | Shell interactif           |
+| ------------------ | ------------------------------- | -------------------------- |
+| État serveur       | `health`                        | `health`                   |
+| Lister mémoires    | `memory list`                   | `list`                     |
+| Créer mémoire      | `memory create ID -o onto`      | `create ID onto`           |
+| Supprimer mémoire  | `memory delete ID`              | `delete [ID]`              |
+| Info mémoire       | `memory info ID`                | `info`                     |
+| Graphe texte       | `memory graph ID`               | `graph [ID]`               |
+| Entités par type   | `memory entities ID`            | `entities`                 |
+| Contexte entité    | `memory entity ID NAME`         | `entity NAME`              |
+| Relations par type | `memory relations ID [-t TYPE]` | `relations [TYPE]`         |
+| Lister documents   | `document list ID`              | `docs`                     |
+| Ingérer document   | `document ingest ID PATH`       | `ingest PATH`              |
+| Supprimer document | `document delete ID DOC`        | `deldoc DOC`               |
+| Question/Réponse   | `ask ID "question"`             | `ask question`             |
+| Query structuré    | `query ID "question"`           | `query question`           |
+| Vérif. stockage S3 | `storage check [ID]`            | `check [ID]`               |
+| Nettoyage S3       | `storage cleanup [-f]`          | `cleanup [--force]`        |
+| Ontologies dispo.  | `ontologies`                    | `ontologies`               |
+| Créer backup       | `backup create ID`              | `backup-create [ID]`                      |
+| Lister backups     | `backup list [ID]`              | `backup-list [ID]`                        |
+| Restaurer backup   | `backup restore BACKUP_ID`      | `backup-restore BACKUP_ID`                |
+| Télécharger backup | `backup download BACKUP_ID`     | `backup-download BACKUP_ID [--include-documents]` |
+| Supprimer backup   | `backup delete BACKUP_ID`       | `backup-delete BACKUP_ID`                 |
+| Restore fichier    | `backup restore-file PATH`      | *(via Click uniquement)*                  |
 
 ---
 
 ## 🔧 Outils MCP
 
-21 outils exposés via le protocole MCP (HTTP/SSE) :
+27 outils exposés via le protocole MCP (HTTP/SSE) :
 
 ### Gestion des mémoires
 
@@ -416,17 +429,17 @@ mcp> exit                          # Quitter
 
 ### Recherche et Q&A
 
-| Outil                | Paramètres                       | Description                                           |
-| -------------------- | -------------------------------- | ----------------------------------------------------- |
-| `memory_search`      | `memory_id`, `query`, `limit`    | Recherche d'entités dans le graphe                    |
-| `memory_get_context` | `memory_id`, `entity_name`       | Contexte complet d'une entité (voisins + docs)        |
-| `question_answer`    | `memory_id`, `question`, `limit` | Question en langage naturel → réponse LLM avec sources |
+| Outil                | Paramètres                       | Description                                                |
+| -------------------- | -------------------------------- | ---------------------------------------------------------- |
+| `memory_search`      | `memory_id`, `query`, `limit`    | Recherche d'entités dans le graphe                         |
+| `memory_get_context` | `memory_id`, `entity_name`       | Contexte complet d'une entité (voisins + docs)             |
+| `question_answer`    | `memory_id`, `question`, `limit` | Question en langage naturel → réponse LLM avec sources     |
 | `memory_query`       | `memory_id`, `query`, `limit`    | Données structurées sans LLM (entités, chunks RAG, scores) |
 
 ### Ontologies
 
-| Outil           | Paramètres | Description                   |
-| --------------- | ---------- | ----------------------------- |
+| Outil           | Paramètres | Description                      |
+| --------------- | ---------- | -------------------------------- |
 | `ontology_list` | —          | Liste les ontologies disponibles |
 
 ### Stockage S3
@@ -436,15 +449,26 @@ mcp> exit                          # Quitter
 | `storage_check`   | `memory_id` (optionnel) | Vérifie cohérence graphe ↔ S3     |
 | `storage_cleanup` | `dry_run`               | Nettoie les fichiers S3 orphelins |
 
+### Backup / Restore
+
+| Outil                    | Paramètres                       | Description                                                   |
+| ------------------------ | -------------------------------- | ------------------------------------------------------------- |
+| `backup_create`          | `memory_id`, `description`       | Crée un backup complet sur S3 (graphe + vecteurs)             |
+| `backup_list`            | `memory_id` (optionnel)          | Liste les backups disponibles avec statistiques               |
+| `backup_restore`         | `backup_id`                      | Restaure depuis un backup S3 (mémoire ne doit pas exister)    |
+| `backup_download`        | `backup_id`, `include_documents` | Télécharge un backup en archive tar.gz (+ docs optionnels)    |
+| `backup_delete`          | `backup_id`                      | Supprime un backup de S3                                      |
+| `backup_restore_archive` | `archive_base64`                 | Restaure depuis une archive tar.gz locale (avec re-upload S3) |
+
 ### Administration
 
-| Outil                 | Paramètres                            | Description                                   |
-| --------------------- | ------------------------------------- | --------------------------------------------- |
-| `admin_create_token`  | `client_name`, `permissions`, `email` | Crée un token d'accès                         |
-| `admin_list_tokens`   | —                                     | Liste les tokens actifs                       |
-| `admin_revoke_token`  | `token_hash`                          | Révoque un token                              |
-| `admin_update_token`  | `token_hash`, `memory_ids`, `action`  | Modifie les mémoires d'un token (add/remove/set) |
-| `system_health`       | —                                     | État de santé des services (Neo4j, S3, LLM, Qdrant, Embedding) |
+| Outil                | Paramètres                            | Description                                                    |
+| -------------------- | ------------------------------------- | -------------------------------------------------------------- |
+| `admin_create_token` | `client_name`, `permissions`, `email` | Crée un token d'accès                                          |
+| `admin_list_tokens`  | —                                     | Liste les tokens actifs                                        |
+| `admin_revoke_token` | `token_hash`                          | Révoque un token                                               |
+| `admin_update_token` | `token_hash`, `memory_ids`, `action`  | Modifie les mémoires d'un token (add/remove/set)               |
+| `system_health`      | —                                     | État de santé des services (Neo4j, S3, LLM, Qdrant, Embedding) |
 
 ---
 
@@ -505,19 +529,19 @@ En plus du protocole MCP (SSE), le service expose une API REST. **Tous les endpo
 
 ### Endpoints publics (pas d'authentification)
 
-| Méthode | Endpoint     | Description                    |
-| ------- | ------------ | ------------------------------ |
-| `GET`   | `/health`    | État de santé du serveur       |
-| `GET`   | `/graph`     | Interface web de visualisation |
-| `GET`   | `/static/*`  | Fichiers statiques (CSS, JS)   |
+| Méthode | Endpoint    | Description                    |
+| ------- | ----------- | ------------------------------ |
+| `GET`   | `/health`   | État de santé du serveur       |
+| `GET`   | `/graph`    | Interface web de visualisation |
+| `GET`   | `/static/*` | Fichiers statiques (CSS, JS)   |
 
 ### Endpoints authentifiés (Bearer Token obligatoire)
 
-| Méthode | Endpoint                 | Description                                            |
-| ------- | ------------------------ | ------------------------------------------------------ |
-| `GET`   | `/api/memories`          | Liste des mémoires (JSON)                              |
-| `GET`   | `/api/graph/{memory_id}` | Graphe complet d'une mémoire (JSON)                    |
-| `POST`  | `/api/ask`               | Question/Réponse via LLM (JSON)                        |
+| Méthode | Endpoint                 | Description                                               |
+| ------- | ------------------------ | --------------------------------------------------------- |
+| `GET`   | `/api/memories`          | Liste des mémoires (JSON)                                 |
+| `GET`   | `/api/graph/{memory_id}` | Graphe complet d'une mémoire (JSON)                       |
+| `POST`  | `/api/ask`               | Question/Réponse via LLM (JSON)                           |
 | `POST`  | `/api/query`             | Interrogation structurée sans LLM — données brutes (JSON) |
 
 > **Note** : Le client web (`/graph`) stocke le token Bearer en `localStorage` et l'injecte automatiquement dans chaque appel `/api/*`. En cas de 401, un écran de login s'affiche.
@@ -724,7 +748,8 @@ graph-memory/
     │   ├── models.py         # Modèles Pydantic (Entity, Document, Memory…)
     │   ├── chunker.py        # SemanticChunker (découpage articles/sections)
     │   ├── embedder.py       # EmbeddingService (BGE-M3 via LLMaaS)
-    │   └── vector_store.py   # VectorStoreService (Qdrant — recherche RAG)
+    │   ├── vector_store.py   # VectorStoreService (Qdrant — recherche RAG)
+    │   └── backup.py         # BackupService (backup/restore Neo4j + Qdrant + S3)
     │
     ├── tools/                # Outils MCP (enregistrés dans server.py)
     │   └── __init__.py
@@ -795,4 +820,4 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
 ---
 
-*Graph Memory v1.1.0 — Février 2026*
+*Graph Memory v1.2.0 — Février 2026*

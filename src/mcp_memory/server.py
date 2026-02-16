@@ -114,6 +114,17 @@ def get_vector_store():
     return _vector_store
 
 
+_backup_service = None
+
+def get_backup():
+    """Lazy-load BackupService."""
+    global _backup_service
+    if _backup_service is None:
+        from .core.backup import get_backup_service
+        _backup_service = get_backup_service()
+    return _backup_service
+
+
 # =============================================================================
 # OUTILS MCP - Gestion des Mémoires
 # =============================================================================
@@ -1641,11 +1652,28 @@ async def storage_check(memory_id: Optional[str] = None) -> dict:
                 detail["doc_id"] = graph_uri_details[uri]["doc_id"]
         
         # 4. Lister tous les objets S3 pour détecter les orphelins
+        #    IMPORTANT : pour la détection d'orphelins, on compare avec TOUTES
+        #    les mémoires, pas seulement celles du scope. Sinon les docs des
+        #    autres mémoires apparaissent comme faux-positifs.
         all_s3_objects = await get_storage().list_all_objects()
+        
+        # Collecter les clés S3 de TOUTES les mémoires (pas seulement le scope)
+        all_graph_uris = set(graph_uris)  # Commencer avec celles du scope
+        if memory_id:
+            # Charger les URIs des autres mémoires aussi
+            all_memories = await get_graph().list_memories()
+            for mem in all_memories:
+                if mem.id == memory_id:
+                    continue  # Déjà chargé
+                other_graph = await get_graph().get_full_graph(mem.id)
+                for doc in other_graph.get("documents", []):
+                    uri = doc.get("uri", "")
+                    if uri:
+                        all_graph_uris.add(uri)
         
         # Convertir les URIs du graphe en clés S3 pour comparaison
         graph_keys = set()
-        for uri in graph_uris:
+        for uri in all_graph_uris:
             try:
                 key = get_storage()._parse_key(uri)
                 graph_keys.add(key)
@@ -1662,6 +1690,10 @@ async def storage_check(memory_id: Optional[str] = None) -> dict:
             
             # Ignorer les fichiers de health check
             if key.startswith("_health_check/"):
+                continue
+            
+            # Ignorer les backups (gérés séparément via backup_list)
+            if key.startswith("_backups/"):
                 continue
             
             # Ignorer les ontologies (fichiers légitimes)
@@ -1841,6 +1873,235 @@ async def system_health() -> dict:
 
 
 # =============================================================================
+# OUTILS MCP - Backup / Restore
+# =============================================================================
+
+@mcp.tool()
+async def backup_create(
+    memory_id: str,
+    description: Optional[str] = None,
+    ctx: Optional[Context] = None
+) -> dict:
+    """
+    Crée un backup complet d'une mémoire sur S3.
+    
+    Exporte le graphe Neo4j (entités, relations, documents),
+    les vecteurs Qdrant (embeddings), et les références des documents S3.
+    Applique la politique de rétention (BACKUP_RETENTION_COUNT).
+    
+    Args:
+        memory_id: ID de la mémoire à sauvegarder
+        description: Description optionnelle du backup
+        
+    Returns:
+        backup_id, statistiques, temps d'exécution
+    """
+    try:
+        access_err = check_memory_access(memory_id)
+        if access_err:
+            return access_err
+        
+        async def _progress(msg):
+            if ctx:
+                try:
+                    await ctx.info(msg)
+                except Exception:
+                    pass
+        
+        result = await get_backup().create_backup(
+            memory_id=memory_id,
+            description=description,
+            progress_callback=_progress
+        )
+        return result
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@mcp.tool()
+async def backup_list(memory_id: Optional[str] = None) -> dict:
+    """
+    Liste les backups disponibles sur S3.
+    
+    Args:
+        memory_id: Si fourni, liste uniquement les backups de cette mémoire.
+                   Sinon, liste tous les backups.
+        
+    Returns:
+        Liste des backups avec date, taille, statistiques
+    """
+    try:
+        backups = await get_backup().list_backups(memory_id=memory_id)
+        
+        return {
+            "status": "ok",
+            "count": len(backups),
+            "backups": [
+                {
+                    "backup_id": b.get("backup_id"),
+                    "memory_id": b.get("memory_id"),
+                    "memory_name": b.get("memory_name"),
+                    "description": b.get("description"),
+                    "created_at": b.get("created_at"),
+                    "stats": b.get("stats", {}),
+                    "version": b.get("version"),
+                }
+                for b in backups
+            ]
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@mcp.tool()
+async def backup_restore(
+    backup_id: str,
+    ctx: Optional[Context] = None
+) -> dict:
+    """
+    Restaure une mémoire depuis un backup S3.
+    
+    ⚠️ La mémoire NE DOIT PAS exister (erreur sinon).
+    Supprimez-la d'abord avec memory_delete si nécessaire.
+    
+    Restaure le graphe Neo4j + les vecteurs Qdrant tels qu'ils étaient,
+    SANS refaire l'extraction LLM (instantané).
+    
+    Args:
+        backup_id: ID du backup (format: "memory_id/timestamp")
+        
+    Returns:
+        Compteurs de restauration (entités, relations, vecteurs, documents S3)
+    """
+    try:
+        async def _progress(msg):
+            if ctx:
+                try:
+                    await ctx.info(msg)
+                except Exception:
+                    pass
+        
+        result = await get_backup().restore_backup(
+            backup_id=backup_id,
+            progress_callback=_progress
+        )
+        return result
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@mcp.tool()
+async def backup_download(
+    backup_id: str,
+    include_documents: bool = False,
+    ctx: Optional[Context] = None
+) -> dict:
+    """
+    Télécharge un backup sous forme d'archive tar.gz encodée en base64.
+    
+    Par défaut (light) : uniquement les données JSON (graphe + vecteurs).
+    Avec include_documents=True : inclut aussi les fichiers originaux (PDF, DOCX, etc.).
+    
+    Args:
+        backup_id: ID du backup (format: "memory_id/timestamp")
+        include_documents: Si True, inclut les documents originaux dans l'archive
+        
+    Returns:
+        Archive tar.gz encodée en base64 + nom de fichier suggéré
+    """
+    try:
+        async def _progress(msg):
+            if ctx:
+                try:
+                    await ctx.info(msg)
+                except Exception:
+                    pass
+        
+        archive_bytes = await get_backup().download_backup(
+            backup_id=backup_id,
+            include_documents=include_documents,
+            progress_callback=_progress
+        )
+        
+        # Encoder en base64 pour transmission via MCP
+        import base64 as b64
+        archive_b64 = b64.b64encode(archive_bytes).decode("ascii")
+        
+        # Nom de fichier suggéré
+        safe_id = backup_id.replace("/", "-")
+        filename = f"backup-{safe_id}.tar.gz"
+        
+        return {
+            "status": "ok",
+            "backup_id": backup_id,
+            "filename": filename,
+            "size_bytes": len(archive_bytes),
+            "include_documents": include_documents,
+            "content_base64": archive_b64,
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@mcp.tool()
+async def backup_delete(backup_id: str) -> dict:
+    """
+    Supprime un backup de S3.
+    
+    Args:
+        backup_id: ID du backup (format: "memory_id/timestamp")
+        
+    Returns:
+        Nombre de fichiers supprimés
+    """
+    try:
+        result = await get_backup().delete_backup(backup_id)
+        return result
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@mcp.tool()
+async def backup_restore_archive(
+    archive_base64: str,
+    ctx: Optional[Context] = None
+) -> dict:
+    """
+    Restaure une mémoire depuis une archive tar.gz (base64).
+    
+    L'archive doit contenir manifest.json, graph_data.json, qdrant_vectors.jsonl.
+    Si elle contient un dossier documents/, les fichiers sont re-uploadés sur S3.
+    
+    ⚠️ La mémoire NE DOIT PAS exister (erreur sinon).
+    
+    Usage typique : backup download --include-documents → fichier.tar.gz → restore-file
+    
+    Args:
+        archive_base64: Contenu de l'archive tar.gz encodé en base64
+        
+    Returns:
+        Compteurs de restauration (entités, relations, vecteurs, documents S3)
+    """
+    try:
+        archive_bytes = base64.b64decode(archive_base64)
+        
+        async def _progress(msg):
+            if ctx:
+                try:
+                    await ctx.info(msg)
+                except Exception:
+                    pass
+        
+        result = await get_backup().restore_from_archive(
+            archive_bytes=archive_bytes,
+            progress_callback=_progress
+        )
+        return result
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# =============================================================================
 # Point d'entrée
 # =============================================================================
 
@@ -1873,6 +2134,7 @@ def main():
     print("  - memory_ingest, memory_search, memory_query, memory_get_context", file=sys.stderr)
     print("  - admin_create_token, admin_list_tokens, admin_revoke_token, admin_update_token", file=sys.stderr)
     print("  - storage_check, storage_cleanup, system_health", file=sys.stderr)
+    print("  - backup_create, backup_list, backup_restore, backup_download, backup_delete", file=sys.stderr)
     print("=" * 70, file=sys.stderr)
     
     # Lancer le serveur

@@ -93,6 +93,12 @@ class Settings(BaseSettings):
     admin_bootstrap_key: Optional[str] = None  # Pour créer le premier token
     
     # =========================================================================
+    # Backup / Restore
+    # =========================================================================
+    s3_backup_prefix: str = "_backups"  # Préfixe S3 pour les backups
+    backup_retention_count: int = 5     # Nombre max de backups conservés par mémoire (0 = illimité)
+    
+    # =========================================================================
     # Limites et timeouts
     # =========================================================================
     max_document_size_mb: int = 50

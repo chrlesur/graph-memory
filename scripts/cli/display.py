@@ -610,6 +610,103 @@ def show_query_result(result: dict):
             console.print(f"  • [cyan]{doc.get('filename', '?')}[/cyan]  [dim]({doc.get('id', '?')[:8]}…)[/dim]")
 
 
+def show_backup_result(result: dict):
+    """Affiche le résultat d'un backup."""
+    from rich.panel import Panel
+    
+    stats = result.get("stats", {})
+    lines = [
+        f"[bold]Backup ID:[/bold]  [cyan]{result.get('backup_id', '?')}[/cyan]",
+        f"[bold]Mémoire:[/bold]    [cyan]{result.get('memory_id', '?')}[/cyan]",
+        f"[bold]Date:[/bold]       [dim]{result.get('created_at', '?')}[/dim]",
+        f"",
+        f"[bold]Entités:[/bold]    [green]{stats.get('entities', 0)}[/green]",
+        f"[bold]Relations:[/bold]  [green]{stats.get('relations', 0)}[/green]",
+        f"[bold]Documents:[/bold]  [green]{stats.get('documents', 0)}[/green]",
+        f"[bold]Vecteurs:[/bold]   [green]{stats.get('qdrant_vectors', 0)}[/green]",
+        f"",
+        f"[bold]Temps:[/bold]      [dim]{result.get('elapsed_seconds', 0)}s[/dim]",
+    ]
+    
+    retention = result.get("retention_deleted", 0)
+    if retention > 0:
+        lines.append(f"[bold]Rétention:[/bold] [yellow]{retention} ancien(s) backup(s) supprimé(s)[/yellow]")
+    
+    console.print(Panel.fit(
+        "\n".join(lines),
+        title="💾 Backup créé",
+        border_style="green"
+    ))
+
+
+def show_backups_table(backups: list):
+    """Affiche la liste des backups en table."""
+    from rich.table import Table
+    
+    if not backups:
+        console.print("[dim]Aucun backup trouvé.[/dim]")
+        return
+    
+    table = Table(title=f"💾 Backups ({len(backups)})", show_header=True)
+    table.add_column("Backup ID", style="cyan", no_wrap=True, min_width=35)
+    table.add_column("Mémoire", style="white")
+    table.add_column("Date", style="dim", no_wrap=True, min_width=19)
+    table.add_column("Entités", style="green", justify="right")
+    table.add_column("Relations", style="green", justify="right")
+    table.add_column("Vecteurs", style="green", justify="right")
+    table.add_column("Docs", style="green", justify="right")
+    table.add_column("Description", style="dim", max_width=30)
+    
+    for b in backups:
+        stats = b.get("stats", {})
+        table.add_row(
+            b.get("backup_id", "?"),
+            b.get("memory_name", b.get("memory_id", "?")),
+            (b.get("created_at", "") or "")[:19],
+            str(stats.get("entities", 0)),
+            str(stats.get("relations", 0)),
+            str(stats.get("qdrant_vectors", 0)),
+            str(stats.get("documents", 0)),
+            (b.get("description", "") or "")[:30],
+        )
+    
+    console.print(table)
+
+
+def show_restore_result(result: dict):
+    """Affiche le résultat d'une restauration."""
+    from rich.panel import Panel
+    
+    graph = result.get("graph", {})
+    lines = [
+        f"[bold]Backup ID:[/bold]  [cyan]{result.get('backup_id', '?')}[/cyan]",
+        f"[bold]Mémoire:[/bold]    [cyan]{result.get('memory_id', '?')}[/cyan]",
+        f"",
+        f"[bold green]Graphe restauré:[/bold green]",
+        f"  Memory:    [green]{graph.get('memory', 0)}[/green]",
+        f"  Documents: [green]{graph.get('documents', 0)}[/green]",
+        f"  Entités:   [green]{graph.get('entities', 0)}[/green]",
+        f"  Relations: [green]{graph.get('relations', 0)}[/green]",
+        f"  Mentions:  [green]{graph.get('mentions', 0)}[/green]",
+        f"",
+        f"[bold green]Vecteurs:[/bold green]   [green]{result.get('qdrant_vectors_restored', 0)}[/green] restaurés",
+        f"[bold]Docs S3:[/bold]    [green]{result.get('s3_documents_ok', 0)}[/green] OK",
+    ]
+    
+    missing = result.get("s3_documents_missing", 0)
+    if missing > 0:
+        lines.append(f"            [red]{missing} manquant(s)[/red]")
+    
+    lines.append(f"")
+    lines.append(f"[bold]Temps:[/bold]      [dim]{result.get('elapsed_seconds', 0)}s[/dim]")
+    
+    console.print(Panel.fit(
+        "\n".join(lines),
+        title="📥 Restauration terminée",
+        border_style="green"
+    ))
+
+
 def show_answer(answer: str, entities: list = None, source_documents: list = None):
     """Affiche une réponse Q&A avec les documents sources."""
     console.print(Panel.fit(

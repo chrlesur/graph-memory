@@ -352,6 +352,118 @@ class VectorStoreService:
             raise
     
     # =========================================================================
+    # Export / Import (Backup)
+    # =========================================================================
+    
+    async def export_collection(self, memory_id: str) -> List[dict]:
+        """
+        Exporte tous les points d'une collection Qdrant pour backup.
+        
+        Utilise le scroll API pour paginer et éviter les problèmes de mémoire.
+        Chaque point est exporté avec son id, vector et payload.
+        
+        Args:
+            memory_id: ID de la mémoire
+            
+        Returns:
+            Liste de dicts {id, vector, payload} pour chaque point
+        """
+        name = self._collection_name(memory_id)
+        all_points = []
+        
+        try:
+            # Vérifier que la collection existe
+            collections = self._client.get_collections().collections
+            existing_names = [c.name for c in collections]
+            if name not in existing_names:
+                print(f"⚠️ [Qdrant Export] Collection {name} n'existe pas", file=sys.stderr)
+                return []
+            
+            # Scroll pour récupérer tous les points par pages
+            offset = None
+            page_size = 100
+            
+            while True:
+                scroll_result = self._client.scroll(
+                    collection_name=name,
+                    limit=page_size,
+                    offset=offset,
+                    with_payload=True,
+                    with_vectors=True,
+                )
+                
+                points, next_offset = scroll_result
+                
+                for point in points:
+                    all_points.append({
+                        "id": str(point.id),
+                        "vector": list(point.vector) if point.vector else [],
+                        "payload": dict(point.payload) if point.payload else {}
+                    })
+                
+                if next_offset is None:
+                    break
+                offset = next_offset
+            
+            print(f"📦 [Qdrant Export] {name}: {len(all_points)} points exportés", file=sys.stderr)
+            return all_points
+            
+        except Exception as e:
+            print(f"❌ [Qdrant Export] Erreur export {name}: {e}", file=sys.stderr)
+            raise
+    
+    async def import_collection(
+        self,
+        memory_id: str,
+        points_data: List[dict],
+        batch_size: int = 100
+    ) -> int:
+        """
+        Importe des points dans une collection Qdrant depuis un backup.
+        
+        Recrée la collection (si elle n'existe pas) et upsert tous les points.
+        Les vecteurs et payloads sont restaurés tels quels.
+        
+        Args:
+            memory_id: ID de la mémoire
+            points_data: Liste de dicts {id, vector, payload}
+            batch_size: Taille des batches d'upsert
+            
+        Returns:
+            Nombre de points importés
+        """
+        if not points_data:
+            return 0
+        
+        name = self._collection_name(memory_id)
+        
+        # S'assurer que la collection existe
+        await self.ensure_collection(memory_id)
+        
+        # Construire et upsert par batches
+        total_imported = 0
+        
+        for i in range(0, len(points_data), batch_size):
+            batch = points_data[i:i + batch_size]
+            
+            points = []
+            for p in batch:
+                points.append(qmodels.PointStruct(
+                    id=p["id"],
+                    vector=p["vector"],
+                    payload=p.get("payload", {})
+                ))
+            
+            self._client.upsert(
+                collection_name=name,
+                points=points
+            )
+            total_imported += len(points)
+        
+        print(f"📥 [Qdrant Import] {name}: {total_imported} points importés", file=sys.stderr)
+        return total_imported
+    
+    # =========================================================================
     # Diagnostic
     # =========================================================================
     
