@@ -33,19 +33,20 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
 > Historique complet : voir [CHANGELOG.md](CHANGELOG.md)
 
+### v1.0.0 — 16 février 2026 — 🎉 Production Ready
+- 🔒 **Coraza WAF** — Image custom (`xcaddy` + `coraza-caddy/v2`), OWASP CRS, seul port exposé (8080)
+- 🔒 **Architecture réseau durcie** — Neo4j/Qdrant/MCP internes, container non-root
+- 🔒 **TLS Let's Encrypt natif** — `SITE_ADDRESS` pour basculer dev/prod
+- 🔒 **Headers de sécurité** — CSP, X-Frame-Options DENY, nosniff, Referrer-Policy, Permissions-Policy
+- ⚡ **Routage WAF intelligent** — SSE/messages sans WAF (streaming), routes web avec WAF
+- 🔧 **CLI sur port 8080** — Passe désormais par le WAF
+
 ### v0.6.5 — 16 février 2026 — Tool memory_query + Option --json CLI
 - ✨ **Tool MCP `memory_query`** — Interrogation structurée sans LLM (données brutes pour agents IA)
-- ✨ **Commande CLI `query`** — Shell interactif + mode Click
-- ✨ **Option `--json` globale** — Sur 10 commandes de consultation, JSON brut sans formatage Rich
-- 🐛 Fix erreur TaskGroup → rebuild Docker après ajout de tools
+- ✨ **Option `--json` globale** — Sur 10 commandes de consultation
 
 ### v0.6.4 — 16 février 2026 — Panneau ASK amélioré
-- ✨ Panneau ASK redimensionnable + Export HTML + Fix toggle Documents
-
 ### v0.6.3 — 15 février 2026 — Recherche accent-insensitive + Calibrage RAG
-- ✨ Index fulltext Neo4j `standard-folding` (ASCII folding)
-- 🔧 `RAG_SCORE_THRESHOLD` 0.65 → 0.58
-
 ### v0.6.2 — 15 février 2026 — Interface web + Progression CLI
 ### v0.6.1 — 15 février 2026 — Stabilisation ingestion gros documents
 ### v0.6.0 — 13 février 2026 — Chunked Graph Extraction + Métadonnées
@@ -155,7 +156,13 @@ Question en langage naturel
                                │ HTTP/SSE + Bearer Token
                                ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│                    Graph Memory Service (Port 8002)                  │
+│              Coraza WAF (Port 8080 — seul port exposé)               │
+│  OWASP CRS • CSP • HSTS • X-Frame-Options • Let's Encrypt (prod)     │
+└──────────────────────────────┬───────────────────────────────────────┘
+                               │ réseau Docker interne (mcp-network)
+                               ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                    Graph Memory Service (Port 8002 interne)          │
 │  ┌────────────────────────────────────────────────────────────────┐  │
 │  │  Middleware Layer                                              │  │
 │  │  • StaticFilesMiddleware (web UI + API REST)                   │  │
@@ -166,11 +173,11 @@ Question en langage naturel
 │  │  MCP Tools (21 outils)                                         │  │
 │  │  • memory_create/delete/list/stats                             │  │
 │  │  • memory_ingest/search/get_context                            │  │
-│  │  • question_answer                                             │  │
-│  │  • document_delete                                             │  │
+│  │  • question_answer / memory_query                              │  │
+│  │  • document_list/get/delete                                    │  │
 │  │  • storage_check/storage_cleanup                               │  │
-│  │  • admin_create_token/list_tokens/revoke_token                 │  │
-│  │  • system_health                                               │  │
+│  │  • admin_create_token/list_tokens/revoke_token/update_token    │  │
+│  │  • ontology_list • system_health                               │  │
 │  └────────────────────────────────────────────────────────────────┘  │
 │  ┌────────────────────────────────────────────────────────────────┐  │
 │  │  Core Services                                                 │  │
@@ -183,11 +190,14 @@ Question en langage naturel
                                │
         ┌────────────┬─────────┼─────────┬────────────┐
         ▼            ▼         ▼         ▼            ▼
-┌───────────┐ ┌───────────┐ ┌──────┐ ┌────────┐ ┌──────────┐
-│  Neo4j 5  │ │ S3 (Dell  │ │LLMaaS│ │ Qdrant │ │Embedding │
-│ (Graphe)  │ │ ECS,AWS…) │ │(Gen) │ │(Vector)│ │(BGE-M3)  │
-└───────────┘ └───────────┘ └──────┘ └────────┘ └──────────┘
+┌───────────┐ ┌───────────┐ ┌──────┐ ┌─────────┐ ┌──────────┐
+│  Neo4j 5  │ │ S3 (Dell  │ │LLMaaS│ │ Qdrant  │ │Embedding │
+│ (Graphe)  │ │ ECS,AWS…) │ │(Gen) │ │(Vector) │ │(BGE-M3)  │
+│ (interne) │ └───────────┘ └──────┘ │(interne)│ │(LLMaaS)  │
+└───────────┘                        └─────────┘ └──────────┘
 ```
+
+> **Sécurité réseau** : seul le port 8080 (WAF) est exposé. Neo4j, Qdrant et le service MCP ne sont accessibles que via le réseau Docker interne. Le container MCP tourne en utilisateur non-root.
 
 ---
 
@@ -253,32 +263,36 @@ Voir `.env.example` pour la liste complète.
 ## ▶️ Démarrage
 
 ```bash
-# Démarrer les services (Neo4j + Graph Memory)
+# Démarrer les services (WAF + MCP + Neo4j + Qdrant)
 docker compose up -d
 
 # Vérifier le statut
 docker compose ps
 
-# Vérifier la santé
-curl http://localhost:8002/health
+# Vérifier la santé (via le WAF)
+curl http://localhost:8080/health
 
 # Voir les logs
 docker compose logs mcp-memory -f --tail 50
+docker compose logs waf -f --tail 50
 ```
 
 ### Ports exposés
 
-| Service       | Port   | Description                              |
-| ------------- | ------ | ---------------------------------------- |
-| Graph Memory  | `8002` | API MCP (SSE) + Interface Web + API REST |
-| Neo4j Browser | `7475` | Interface d'administration Neo4j         |
-| Neo4j Bolt    | `7688` | Protocole Bolt (requêtes Cypher)         |
+| Service    | Port   | Description                                         |
+| ---------- | ------ | --------------------------------------------------- |
+| **WAF**    | `8080` | **Seul port exposé** — Coraza WAF → Graph Memory    |
+| Neo4j      | —      | Réseau Docker interne uniquement (debug: 127.0.0.1:7475) |
+| Qdrant     | —      | Réseau Docker interne uniquement (debug: 127.0.0.1:6333) |
+| MCP Server | —      | Réseau Docker interne uniquement (debug: 127.0.0.1:8002) |
+
+> **Production HTTPS** : mettez `SITE_ADDRESS=votre-domaine.com` dans `.env`, décommentez les ports 80+443 dans `docker-compose.yml`. Caddy obtient automatiquement un certificat Let's Encrypt.
 
 ---
 
 ## 🌐 Interface Web
 
-Accessible à : **http://localhost:8002/graph**
+Accessible à : **http://localhost:8080/graph**
 
 ### Fonctionnalités
 
@@ -507,7 +521,7 @@ En plus du protocole MCP (SSE), le service expose une API REST. **Tous les endpo
 ### Exemple : Question/Réponse via API REST
 
 ```bash
-curl -X POST http://localhost:8002/api/ask \
+curl -X POST http://localhost:8080/api/ask \
   -H "Authorization: Bearer VOTRE_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -533,7 +547,7 @@ Réponse :
 ### Exemple : Query structuré (sans LLM)
 
 ```bash
-curl -X POST http://localhost:8002/api/query \
+curl -X POST http://localhost:8080/api/query \
   -H "Authorization: Bearer VOTRE_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -555,7 +569,7 @@ Ajoutez dans votre configuration MCP :
 {
   "mcpServers": {
     "graph-memory": {
-      "url": "http://localhost:8002/sse",
+      "url": "http://localhost:8080/sse",
       "headers": {
         "Authorization": "Bearer VOTRE_TOKEN"
       }
@@ -574,7 +588,7 @@ import base64
 async def exemple():
     headers = {"Authorization": "Bearer votre_token"}
     
-    async with sse_client("http://localhost:8002/sse", headers=headers) as (read, write):
+    async with sse_client("http://localhost:8080/sse", headers=headers) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
             
@@ -630,12 +644,22 @@ python scripts/mcp_cli.py shell
 mcp> # utiliser les commandes d'admin
 ```
 
+### WAF (Web Application Firewall)
+
+Depuis v0.6.6, un **WAF Coraza** (basé sur Caddy) protège le service :
+- **OWASP CRS** : protection contre injections SQL/XSS, path traversal, SSRF, scanners
+- **Headers de sécurité** : CSP, X-Frame-Options (DENY), X-Content-Type-Options, Referrer-Policy, Permissions-Policy
+- **Container non-root** : le service MCP tourne sous l'utilisateur `mcp` (pas root)
+- **Réseau isolé** : Neo4j et Qdrant ne sont PAS exposés à l'extérieur
+- **TLS automatique** : en production, Caddy obtient et renouvelle les certificats Let's Encrypt
+
 ### Bonnes pratiques
 
 1. **Changez `ADMIN_BOOTSTRAP_KEY`** en production
 2. **Changez `NEO4J_PASSWORD`** en production
 3. Ne commitez jamais le fichier `.env`
 4. Créez des tokens avec les permissions minimales nécessaires
+5. En production, activez HTTPS via `SITE_ADDRESS=votre-domaine.com`
 
 ---
 
@@ -645,10 +669,13 @@ mcp> # utiliser les commandes d'admin
 graph-memory/
 ├── .env.example              # Template de configuration (toutes les variables)
 ├── .gitignore                # Fichiers ignorés
-├── docker-compose.yml        # Orchestration Docker (Neo4j + service)
-├── Dockerfile                # Image du service
+├── docker-compose.yml        # Orchestration Docker (WAF + MCP + Neo4j + Qdrant)
+├── Dockerfile                # Image du service (non-root)
 ├── README.md                 # Ce fichier
 ├── requirements.txt          # Dépendances Python
+│
+├── waf/                      # WAF Coraza (reverse proxy sécurisé)
+│   └── Caddyfile             # Config OWASP CRS + headers + TLS Let's Encrypt
 │
 ├── ONTOLOGIES/               # Ontologies d'extraction
 │   ├── legal.yaml            # Documents juridiques (22 types entités + relations)
@@ -733,7 +760,7 @@ docker compose exec mcp-memory env | grep -E "S3_|LLMAAS_|NEO4J_"
 
 ### Page web blanche
 
-- Accédez à `http://localhost:8002/graph` (pas `/` ni `/static/graph.html`)
+- Accédez à `http://localhost:8080/graph` (pas `/` ni `/static/graph.html`)
 - Faites un **hard refresh** : `Cmd+Shift+R` (Mac) ou `Ctrl+Shift+R` (Windows)
 - Vérifiez les logs : `docker compose logs mcp-memory -f`
 
@@ -759,4 +786,4 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
 ---
 
-*Graph Memory v0.6.5 — Février 2026*
+*Graph Memory v1.0.0 — Février 2026*

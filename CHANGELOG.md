@@ -7,6 +7,53 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.0.0] — 2026-02-16
+
+### 🎉 Version 1.0 — Production Ready
+
+#### Architecture sécurisée
+- **Coraza WAF** (`waf/Dockerfile`, `waf/Caddyfile`) — Image custom buildée via `xcaddy` + plugin `coraza-caddy/v2` avec OWASP Core Rule Set embarqué. Protection OWASP Top 10 (injections SQL/XSS, SSRF, path traversal, scanners).
+- **Architecture réseau durcie** — Seul le port 8080 (WAF) est exposé. Neo4j, Qdrant et le service MCP sont sur un réseau Docker interne isolé (`mcp-network`). Container MCP non-root (`USER mcp`).
+- **TLS Let's Encrypt natif** — Caddy gère nativement ACME/Let's Encrypt. Variable `SITE_ADDRESS` pour basculer dev (`:8080` HTTP) ↔ prod (`domaine.com` HTTPS automatique).
+- **Headers de sécurité** — CSP (Content-Security-Policy), X-Frame-Options DENY, X-Content-Type-Options nosniff, Referrer-Policy, Permissions-Policy.
+
+#### Routage WAF intelligent
+- **Routes SSE/MCP sans WAF** (`handle /sse*`, `handle /messages/*`) — Coraza bufférise les réponses pour les inspecter, ce qui est incompatible avec le streaming SSE. Ces routes sont servies en reverse proxy direct (authentification gérée côté serveur MCP par token Bearer).
+- **Routes web avec WAF** (`handle`) — API REST (`/api/*`), fichiers statiques, health et graphe protégés par Coraza WAF + OWASP CRS.
+- **Timeouts calibrés** — SSE : timeout 0 (connexions MCP longues), ingestion : 1800s (30 min pour gros documents), API REST : 300s.
+
+#### CLI adaptée
+- **Port par défaut 8080** — La CLI pointe désormais sur le WAF (`http://localhost:8080`) au lieu du service interne (`http://localhost:8002`).
+
+#### Fichiers ajoutés/modifiés
+`waf/Dockerfile` (nouveau), `waf/Caddyfile`, `docker-compose.yml`, `Dockerfile`, `scripts/cli/__init__.py`, `scripts/view_graph.py`, `scripts/README.md`, `src/mcp_memory/auth/middleware.py`, `VERSION`
+
+---
+
+## [0.6.6] — 2026-02-16
+
+### Audit sécurité + WAF Coraza + Hardening Docker
+
+#### Ajouté
+- **Coraza WAF** (`waf/Caddyfile`, `docker-compose.yml`) — Reverse proxy sécurisé avec OWASP Core Rule Set (CRS). Protection contre injections SQL/XSS, path traversal, SSRF, scanners. Headers de sécurité (CSP, HSTS, X-Frame-Options, Permissions-Policy). Seul port exposé : 8080 (WAF).
+- **Support TLS Let's Encrypt natif** — Caddy (intégré dans l'image Coraza CRS) gère nativement ACME/Let's Encrypt. Variable `SITE_ADDRESS` pour basculer dev (`:8080` HTTP) ↔ prod (`domaine.com` HTTPS automatique). Pas besoin de nginx/certbot.
+- **Rapport d'audit** (`AUDIT_SECURITE_2026-02-16.md`) — Audit complet : 3 vulnérabilités critiques, 5 élevées, 7 moyennes identifiées et corrigées.
+
+#### Corrigé (sécurité)
+- **Container root** (`Dockerfile`) — Ajout `USER mcp` non-root (le service tournait en root dans le container).
+- **Ports Neo4j/Qdrant exposés** (`docker-compose.yml`) — Supprimés. Neo4j et Qdrant ne sont plus accessibles depuis l'extérieur (réseau Docker interne uniquement). Ports debug commentés sur 127.0.0.1.
+- **Timeouts WAF calibrés** — SSE : timeout 0 (connexions MCP longues), ingestion : 1800s (30 min pour gros documents avec chain-of-thought LLM), API REST : 300s.
+
+#### Corrigé (config)
+- **`EXTRACTION_MAX_TEXT_LENGTH` refactorisé** (`extractor.py`) — N'était plus utile avec le chunking (code mort). Transformé en garde-fou explicite : rejette avec `ValueError` les documents trop volumineux AVANT le chunking, au lieu de tronquer silencieusement.
+- **`.env.example` : `EXTRACTION_CHUNK_SIZE`** — Corrigé de 200000 → **25000** (valeur réelle dans config.py depuis v0.6.1).
+- **`.env` nettoyé** — Supprimé le override `EXTRACTION_MAX_TEXT_LENGTH=120000`, les défauts config.py (950K) sont maintenant utilisés. Structure alignée sur `.env.example`.
+
+#### Fichiers modifiés/créés
+`Dockerfile`, `docker-compose.yml`, `waf/Caddyfile` (nouveau), `.env`, `.env.example`, `extractor.py`, `AUDIT_SECURITE_2026-02-16.md` (nouveau), `VERSION`
+
+---
+
 ## [0.6.5] — 2026-02-16
 
 ### Tool memory_query + Option --json CLI

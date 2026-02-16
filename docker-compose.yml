@@ -1,20 +1,90 @@
 # =============================================================================
-# MCP Memory Service - Docker Compose
+# MCP Memory Service - Docker Compose (Sécurisé)
 # =============================================================================
 # Démarrage : docker compose up -d
 # Logs      : docker compose logs -f mcp-memory
+# Logs WAF  : docker compose logs -f waf
 # Arrêt     : docker compose down
+# =============================================================================
+#
+# Architecture réseau :
+#
+#   Internet/LAN
+#       │
+#       ▼ :8080 (seul port exposé)
+#   ┌──────────┐
+#   │ Coraza   │  WAF OWASP CRS + Reverse Proxy + Security Headers
+#   │ WAF      │
+#   └────┬─────┘
+#        │ réseau interne Docker (mcp-network)
+#        ▼
+#   ┌──────────┐
+#   │ MCP      │  Service principal :8002 (interne uniquement)
+#   │ Memory   │
+#   └────┬─────┘
+#        │
+#   ┌────┴────┐
+#   ▼         ▼
+# Neo4j    Qdrant    (aucun port exposé, réseau interne uniquement)
+#
 # =============================================================================
 
 services:
   # ===========================================================================
-  # MCP Memory Service - Serveur principal
+  # Coraza WAF - Web Application Firewall (reverse proxy sécurisé)
+  # ===========================================================================
+  # Image : Caddy + Coraza WAF + OWASP Core Rule Set (CRS)
+  # Doc   : https://github.com/corazawaf/coraza-crs-docker
+  # ===========================================================================
+  waf:
+    build: ./waf
+    container_name: mcp-memory-waf
+    ports:
+      # --- Mode DEV (HTTP) ---
+      - "${WAF_PORT:-8080}:8080"
+      # --- Mode PROD (HTTPS + Let's Encrypt) ---
+      # Décommenter les 2 lignes suivantes et commenter la ligne WAF_PORT ci-dessus :
+      # - "80:80"     # Redirect HTTP → HTTPS + challenge ACME Let's Encrypt
+      # - "443:443"   # HTTPS (TLS automatique via Let's Encrypt)
+    environment:
+      # Adresse d'écoute du site :
+      # - Dev  : ":8080"                       (HTTP, pas de TLS)
+      # - Prod : "graph-memory.mon-domaine.com" (HTTPS automatique Let's Encrypt)
+      - SITE_ADDRESS=${SITE_ADDRESS:-:8080}
+      # Backend à protéger
+      - BACKEND=mcp-memory:8002
+      - BACKEND_PROTOCOL=http
+      # Mode du WAF : "On" = bloque, "DetectionOnly" = log sans bloquer
+      - ANOMALY_INBOUND=5
+      - ANOMALY_OUTBOUND=4
+      - REPORTING_LEVEL=2
+      # Taille max des requêtes (pour supporter l'upload de documents en base64)
+      - ALLOWED_REQUEST_CONTENT_TYPE=|application/json|text/plain|multipart/form-data|application/x-www-form-urlencoded|application/octet-stream|
+      # Augmenter la limite de body pour les ingestions (50MB en base64 ≈ 70MB encodé)
+      - MAX_REQUEST_BODY_SIZE=75000000
+      - MAX_REQUEST_BODY_NOFILES=75000000
+      - CRS_ENABLE_BODY_INSPECTION=1
+    volumes:
+      - ./waf/Caddyfile:/etc/caddy/Caddyfile:ro
+      - waf_data:/data      # Certificats TLS Let's Encrypt stockés ici
+      - waf_config:/config
+    depends_on:
+      mcp-memory:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - mcp-network
+
+  # ===========================================================================
+  # MCP Memory Service - Serveur principal (interne uniquement)
   # ===========================================================================
   mcp-memory:
     build: .
     container_name: mcp-memory-service
-    ports:
-      - "${MCP_SERVER_PORT:-8002}:8002"
+    # NOTE: Pas de section "ports:" — accessible uniquement via le WAF
+    # Pour le debug local, décommenter :
+    # ports:
+    #   - "127.0.0.1:8002:8002"
     environment:
       # Neo4j
       - NEO4J_URI=bolt://neo4j:7687
@@ -29,7 +99,10 @@ services:
       - LLMAAS_API_URL=${LLMAAS_API_URL}
       - LLMAAS_API_KEY=${LLMAAS_API_KEY}
       - LLMAAS_MODEL=${LLMAAS_MODEL:-gpt-oss:120b}
-      - EXTRACTION_MAX_TEXT_LENGTH=${EXTRACTION_MAX_TEXT_LENGTH:-950000}
+      # Extraction : défauts dans config.py (950K max text, 25K chunk size)
+      # Décommenter pour surcharger :
+      # - EXTRACTION_MAX_TEXT_LENGTH=${EXTRACTION_MAX_TEXT_LENGTH:-950000}
+      # - EXTRACTION_CHUNK_SIZE=${EXTRACTION_CHUNK_SIZE:-25000}
       # Embedding
       - LLMAAS_EMBEDDING_MODEL=${LLMAAS_EMBEDDING_MODEL:-bge-m3:567m}
       - LLMAAS_EMBEDDING_DIMENSIONS=${LLMAAS_EMBEDDING_DIMENSIONS:-1024}
@@ -52,18 +125,18 @@ services:
       - mcp-network
 
   # ===========================================================================
-  # Neo4j - Base de données graphe
+  # Neo4j - Base de données graphe (interne uniquement)
   # ===========================================================================
   neo4j:
     image: neo4j:5-community
     container_name: mcp-memory-neo4j
-    ports:
-      - "7475:7474"  # Browser UI (http://localhost:7475)
-      - "7688:7687"  # Bolt protocol
+    # NOTE: Pas de section "ports:" — accessible uniquement via mcp-network
+    # Pour le debug local, décommenter :
+    # ports:
+    #   - "127.0.0.1:7475:7474"
+    #   - "127.0.0.1:7688:7687"
     environment:
       - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD}
-      # Désactiver l'auth pour le dev (optionnel, décommenter si besoin)
-      # - NEO4J_AUTH=none
       # Configuration mémoire (ajuster selon vos ressources)
       - NEO4J_server_memory_heap_initial__size=512m
       - NEO4J_server_memory_heap_max__size=1G
@@ -84,14 +157,15 @@ services:
       - mcp-network
 
   # ===========================================================================
-  # Qdrant - Base de données vectorielle (RAG)
+  # Qdrant - Base de données vectorielle (interne uniquement)
   # ===========================================================================
   qdrant:
     image: qdrant/qdrant:v1.16.2
     container_name: mcp-memory-qdrant
-    ports:
-      - "6333:6333"   # REST API
-      - "6334:6334"   # gRPC
+    # NOTE: Pas de section "ports:" — accessible uniquement via mcp-network
+    # Pour le debug local, décommenter :
+    # ports:
+    #   - "127.0.0.1:6333:6333"
     volumes:
       - qdrant_data:/qdrant/storage
     healthcheck:
@@ -114,6 +188,10 @@ volumes:
     name: mcp-memory-neo4j-logs
   qdrant_data:
     name: mcp-memory-qdrant-data
+  waf_data:
+    name: mcp-memory-waf-data
+  waf_config:
+    name: mcp-memory-waf-config
 
 # =============================================================================
 # Réseau

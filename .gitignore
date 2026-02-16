@@ -76,3 +76,4 @@ temp/
 # === Cline (fichiers internes de travail) ===
 /.clinerules/
 /memory-bank/
+AUDIT_SECURITE_2026-02-16.md

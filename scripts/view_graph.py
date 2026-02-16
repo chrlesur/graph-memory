@@ -24,7 +24,7 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 load_dotenv()
 
-BASE_URL = os.getenv("MCP_SERVER_URL", "http://localhost:8002")
+BASE_URL = os.getenv("MCP_SERVER_URL", "http://localhost:8080")
 BOOTSTRAP_KEY = os.getenv("ADMIN_BOOTSTRAP_KEY", "admin_bootstrap_key_change_me")
 
 # Couleurs ANSI pour le terminal

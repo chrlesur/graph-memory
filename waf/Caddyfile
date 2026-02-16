@@ -1,0 +1,157 @@
+# =============================================================================
+# Coraza WAF + Caddy — Configuration pour MCP Memory Service
+# =============================================================================
+# Ce Caddyfile configure :
+# 1. Coraza WAF avec OWASP CRS (protection OWASP Top 10)
+# 2. Reverse proxy vers mcp-memory:8002
+# 3. Headers de sécurité (CSP, HSTS, X-Frame-Options, etc.)
+# 4. Gestion SSE (Server-Sent Events) pour le protocole MCP
+# 5. TLS automatique via Let's Encrypt (si domaine configuré)
+# =============================================================================
+#
+# ARCHITECTURE DES ROUTES :
+#
+#   /sse*        → Reverse Proxy DIRECT (streaming SSE, pas de WAF)
+#   /messages/*  → Reverse Proxy DIRECT (MCP protocol, pas de WAF)
+#   /api/*       → WAF Coraza + Reverse Proxy (timeout 5min pour Q&A LLM)
+#   /*           → WAF Coraza + Reverse Proxy (statiques, health, graph...)
+#
+# Les routes SSE et messages sont authentifiées par token MCP côté serveur.
+# Le WAF Coraza bufférise les réponses pour les inspecter, ce qui est
+# incompatible avec le streaming SSE (connexions longues, flux continu).
+#
+# =============================================================================
+#
+# MODES D'UTILISATION :
+#
+# 1. DÉVELOPPEMENT (HTTP, pas de TLS) :
+#    - Laisser SITE_ADDRESS=:8080 dans le .env
+#    - Accès via http://localhost:8080
+#
+# 2. PRODUCTION (HTTPS + Let's Encrypt automatique) :
+#    - Mettre SITE_ADDRESS=graph-memory.votre-domaine.com dans le .env
+#    - Exposer les ports 80 + 443 dans docker-compose.yml
+#    - Caddy obtient et renouvelle le certificat TLS automatiquement
+#
+# =============================================================================
+
+{
+	# Ordre des directives : WAF en premier dans les blocs qui l'utilisent
+	order coraza_waf first
+
+	# Pas de page admin Caddy
+	admin off
+}
+
+{$SITE_ADDRESS::8080} {
+
+	# =========================================================================
+	# Headers de Sécurité (appliqués à TOUTES les routes)
+	# =========================================================================
+	header {
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'"
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+		-Server
+		-X-Powered-By
+	}
+
+	# =========================================================================
+	# Route 1 : SSE (Server-Sent Events) — SANS WAF
+	# =========================================================================
+	# Le protocole MCP utilise SSE pour la communication bidirectionnelle.
+	# Les connexions restent ouvertes pendant toute la session (heures).
+	# Coraza bufférise les réponses pour inspection → incompatible avec SSE.
+	# L'authentification est gérée par le serveur MCP (token Bearer).
+	# =========================================================================
+	handle /sse* {
+		reverse_proxy mcp-memory:8002 {
+			flush_interval -1
+			transport http {
+				read_timeout 0
+				write_timeout 0
+				response_header_timeout 0
+			}
+		}
+	}
+
+	# =========================================================================
+	# Route 2 : Messages MCP — SANS WAF
+	# =========================================================================
+	# POST /messages/{session_id} — appels d'outils MCP (memory_ingest, etc.)
+	# Le body JSON peut contenir du base64 volumineux → faux positifs CRS.
+	# L'ingestion peut prendre 15-30 min (extraction LLM + vectorisation).
+	# L'authentification est gérée par le serveur MCP (token Bearer).
+	# =========================================================================
+	handle /messages/* {
+		reverse_proxy mcp-memory:8002 {
+			transport http {
+				read_timeout 1800s
+				write_timeout 1800s
+				response_header_timeout 1800s
+			}
+		}
+	}
+
+	# =========================================================================
+	# Route 3 : Tout le reste — AVEC WAF Coraza
+	# =========================================================================
+	# API REST (/api/*), fichiers statiques, health, graph...
+	# Protégé par Coraza WAF + OWASP CRS contre :
+	# - Injections SQL/NoSQL
+	# - Cross-Site Scripting (XSS)
+	# - Local/Remote File Inclusion (LFI/RFI)
+	# - Server-Side Request Forgery (SSRF)
+	# - Path Traversal
+	# - Scanner/Bot detection
+	# =========================================================================
+	handle {
+		coraza_waf {
+			load_owasp_crs
+			directives `
+				Include @coraza.conf-recommended
+				Include @crs-setup.conf.example
+				Include @owasp_crs/*.conf
+
+				SecRuleEngine On
+
+				SecAction "id:900110,phase:1,pass,nolog,\
+					setvar:tx.inbound_anomaly_score_threshold=5,\
+					setvar:tx.outbound_anomaly_score_threshold=4"
+
+				SecRequestBodyLimit 75000000
+				SecRequestBodyNoFilesLimit 75000000
+				SecRequestBodyLimitAction ProcessPartial
+
+				SecAction "id:900220,phase:1,pass,nolog,\
+					setvar:'tx.allowed_request_content_type=|application/json|text/plain|multipart/form-data|application/x-www-form-urlencoded|application/octet-stream|'"
+			`
+		}
+
+		# API REST — timeout généreux pour Q&A LLM (30-60s)
+		@api {
+			path /api/*
+		}
+		reverse_proxy @api mcp-memory:8002 {
+			transport http {
+				read_timeout 300s
+				write_timeout 300s
+				response_header_timeout 300s
+			}
+		}
+
+		# Fichiers statiques, health, graph — timeout standard
+		reverse_proxy mcp-memory:8002
+	}
+
+	# =========================================================================
+	# Logging
+	# =========================================================================
+	log {
+		output stdout
+		format json
+		level INFO
+	}
+}

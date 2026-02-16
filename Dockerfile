@@ -32,14 +32,23 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
+# Créer un utilisateur non-root pour la sécurité
+RUN groupadd -r mcp && useradd -r -g mcp -d /app -s /sbin/nologin mcp
+
 # Copie des ontologies
 COPY ONTOLOGIES/ ./ONTOLOGIES/
 
 # Copie du code source
 COPY src/ ./src/
 
+# Donner les droits à l'utilisateur mcp
+RUN chown -R mcp:mcp /app
+
 # Port exposé
 EXPOSE 8002
+
+# Passer en utilisateur non-root
+USER mcp
 
 # Healthcheck (curl = léger, pas de fork Python qui consomme 50MB+)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \

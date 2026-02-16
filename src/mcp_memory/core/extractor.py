@@ -97,10 +97,6 @@ class ExtractorService:
         Returns:
             ExtractionResult avec entités, relations, résumé
         """
-        # Tronquer si nécessaire (limite depuis config EXTRACTION_MAX_TEXT_LENGTH)
-        if len(text) > self._max_text_length:
-            text = text[:self._max_text_length] + "\n\n[Document tronqué...]"
-        
         prompt = EXTRACTION_PROMPT.format(document_text=text)
         
         try:
@@ -291,10 +287,6 @@ class ExtractorService:
                 f"Chaque mémoire DOIT avoir une ontologie valide."
             )
         
-        # Tronquer si nécessaire (limite depuis config EXTRACTION_MAX_TEXT_LENGTH)
-        if len(text) > self._max_text_length:
-            text = text[:self._max_text_length] + "\n\n[Document tronqué...]"
-        
         # Construire le prompt avec l'ontologie
         prompt = ontology.build_prompt(text)
         
@@ -370,6 +362,18 @@ class ExtractorService:
         """
         settings = get_settings()
         chunk_size = settings.extraction_chunk_size
+        
+        # Garde-fou : rejeter les documents trop volumineux (anti-DoS LLM)
+        # Avec des chunks de 25K chars, un document de 950K = ~38 chunks → raisonnable.
+        # Au-delà, le coût LLM et le temps d'extraction deviennent prohibitifs.
+        max_text_length = settings.extraction_max_text_length
+        if len(text) > max_text_length:
+            raise ValueError(
+                f"Document trop volumineux pour l'extraction : {len(text):,} caractères "
+                f"(limite : {max_text_length:,} caractères, configurable via EXTRACTION_MAX_TEXT_LENGTH). "
+                f"Avec des chunks de {chunk_size:,} chars, cela représenterait "
+                f"~{len(text) // chunk_size} appels LLM."
+            )
         
         # Si le texte tient dans un seul chunk, pas besoin de découper
         if len(text) <= chunk_size:
