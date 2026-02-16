@@ -107,13 +107,14 @@ function applyFilters() {
     const isIsolated = filterState.isolatedNodes !== null;
 
     let filteredNodes = data.nodes.filter(n => {
+        // Les documents sont masqués si le toggle Documents est OFF (prioritaire sur tout, y compris l'isolation)
+        if (n.node_type === 'document' && !displayOptions.showMentions) return false;
+
         // En mode isolation, les nœuds dans le set sont toujours visibles
         if (isIsolated && filterState.isolatedNodes.has(n.id)) return true;
 
         // Les documents sont visibles si leur ID est dans visibleDocuments
-        // ET si le toggle MENTIONS est actif (sinon on masque les docs)
         if (n.node_type === 'document') {
-            if (!displayOptions.showMentions) return false;
             const rawId = n.id.startsWith('doc:') ? n.id.substring(4) : n.id;
             return filterState.visibleDocuments.has(rawId);
         }

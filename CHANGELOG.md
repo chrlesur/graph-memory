@@ -7,6 +7,23 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [0.6.4] — 2026-02-16
+
+### Panneau ASK amélioré + Fix toggle Documents
+
+#### Ajouté
+- **Panneau ASK redimensionnable** (`ask.js`, `graph.css`, `graph.html`) — Poignée de drag en haut du panneau ASK. Tirer vers le haut = panneau plus grand (graphe plus petit), vers le bas = l'inverse. Limites min 100px, max 80% du conteneur. Barre verte au survol, body scrollable indépendant.
+- **Export HTML de la réponse** (`ask.js`) — Bouton "📥 Export HTML" affiché après chaque réponse. Génère un fichier HTML autonome avec CSS inline, branding Cloud Temple, question posée, réponse formatée Markdown (tableaux, code, blockquotes), entités identifiées, documents sources. Compatible impression (`@media print`). Nommé `graph-memory-YYYY-MM-DD-HHmm.html`.
+- **Barre d'actions unifiée** (`ask.js`, `graph.css`) — Les boutons "🔬 Isoler le sujet" et "📥 Export HTML" sont regroupés dans un conteneur `ask-actions` sous la réponse.
+
+#### Corrigé
+- **Toggle Documents inefficace en mode isolation** (`config.js`) — En mode Focus (après "🔬 Isoler le sujet"), les nœuds Document étaient dans `filterState.isolatedNodes`, et le `return true` de l'isolation court-circuitait le test `showMentions`. Les carrés rouges restaient visibles même avec le toggle OFF. Corrigé en plaçant le test `showMentions` **avant** le test d'isolation.
+
+#### Fichiers modifiés
+`config.js`, `ask.js`, `graph.css`, `graph.html`
+
+---
+
 ## [0.6.3] — 2026-02-15
 
 ### Recherche accent-insensitive + Calibrage seuil RAG
