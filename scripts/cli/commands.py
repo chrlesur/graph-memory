@@ -39,8 +39,10 @@ from .display import (
     show_ingest_result, show_error, show_success, show_warning,
     show_answer, show_query_result, show_entity_context, show_storage_check,
     show_cleanup_result, show_tokens_table, show_token_created,
-    show_token_updated, console
+    show_token_updated, show_ingest_preflight, show_entities_by_type,
+    show_relations_by_type, format_size, console
 )
+from .ingest_progress import run_ingest_with_progress
 
 # =============================================================================
 # Groupe principal
@@ -237,59 +239,13 @@ def memory_entities(ctx, memory_id, format):
                 show_error(result.get("message", "Erreur"))
                 return
 
-            nodes = [n for n in result.get("nodes", []) if n.get("node_type") == "entity"]
-            if not nodes:
-                show_warning("Aucune entité dans cette mémoire.")
-                return
-
             if format == "json":
+                nodes = [n for n in result.get("nodes", []) if n.get("node_type") == "entity"]
                 console.print(Syntax(json.dumps(nodes, indent=2, ensure_ascii=False), "json"))
                 return
 
-            # Mapping entité → documents via MENTIONS
-            edges = result.get("edges", [])
-            docs_by_id = {}
-            for d in result.get("documents", []):
-                did = d.get("id", "")
-                fname = d.get("filename", "?")
-                docs_by_id[did] = fname
-                docs_by_id[f"doc:{did}"] = fname
-
-            entity_docs = {}
-            for e in edges:
-                if e.get("type") == "MENTIONS":
-                    from_id = e.get("from", "")
-                    to_label = e.get("to", "")
-                    fname = docs_by_id.get(from_id, "")
-                    if fname:
-                        entity_docs.setdefault(to_label, set()).add(fname)
-
-            from collections import defaultdict
-            from rich.table import Table
-            by_type = defaultdict(list)
-            for n in nodes:
-                by_type[n.get("type", "?")].append(n)
-
-            for etype in sorted(by_type, key=lambda t: -len(by_type[t])):
-                entities = by_type[etype]
-                table = Table(
-                    title=f"[magenta]{etype}[/magenta] ({len(entities)})",
-                    show_header=True, show_lines=False
-                )
-                table.add_column("Nom", style="white")
-                table.add_column("Description", style="dim", max_width=40)
-                table.add_column("Document(s)", style="cyan")
-
-                for ent in entities:
-                    label = ent.get("label", "?")
-                    doc_list = entity_docs.get(label, set())
-                    doc_str = ", ".join(sorted(doc_list)) if doc_list else "-"
-                    table.add_row(
-                        label[:40],
-                        (ent.get("description", "") or "")[:40],
-                        doc_str,
-                    )
-                console.print(table)
+            # Affichage partagé (display.py)
+            show_entities_by_type(result)
         except Exception as e:
             show_error(str(e))
     asyncio.run(_run())
@@ -328,9 +284,6 @@ def memory_relations(ctx, memory_id, rel_type, format):
     """🔗 Relations par type (résumé ou détail avec --type)."""
     async def _run():
         try:
-            from collections import Counter
-            from rich.table import Table
-
             client = MCPClient(ctx.obj["url"], ctx.obj["token"])
             result = await client.get_graph(memory_id)
             if result.get("status") != "ok":
@@ -349,48 +302,8 @@ def memory_relations(ctx, memory_id, rel_type, format):
                 console.print(Syntax(json.dumps(data, indent=2, ensure_ascii=False), "json"))
                 return
 
-            if rel_type:
-                # Mode détaillé : toutes les relations d'un type
-                filtered = [e for e in edges if e.get("type", "").upper() == rel_type.upper()]
-                if not filtered:
-                    available = sorted(set(e.get("type", "?") for e in edges))
-                    show_error(f"Type '{rel_type}' non trouvé.")
-                    console.print(f"[dim]Types disponibles: {', '.join(available)}[/dim]")
-                    return
-
-                table = Table(
-                    title=f"🔗 {rel_type.upper()} ({len(filtered)} relations)",
-                    show_header=True
-                )
-                table.add_column("De", style="white")
-                table.add_column("→", style="dim", width=2)
-                table.add_column("Vers", style="cyan")
-                table.add_column("Description", style="dim", max_width=40)
-
-                for e in filtered:
-                    table.add_row(
-                        e.get("from", "?")[:35],
-                        "→",
-                        e.get("to", "?")[:35],
-                        (e.get("description", "") or "")[:40],
-                    )
-                console.print(table)
-            else:
-                # Mode résumé : compteurs par type
-                rel_types = Counter(e.get("type", "?") for e in edges)
-                table = Table(title=f"🔗 Relations ({len(edges)} total)", show_header=True)
-                table.add_column("Type", style="blue bold")
-                table.add_column("Nombre", style="cyan", justify="right")
-                table.add_column("Exemples", style="dim")
-
-                for rtype, count in rel_types.most_common():
-                    examples = [e for e in edges if e.get("type") == rtype][:3]
-                    ex_str = ", ".join(
-                        f"{e.get('from', '?')} → {e.get('to', '?')}" for e in examples
-                    )
-                    table.add_row(rtype, str(count), ex_str[:60])
-
-                console.print(table)
+            # Affichage partagé (display.py)
+            show_relations_by_type(result, type_filter=rel_type)
         except Exception as e:
             show_error(str(e))
     asyncio.run(_run())
@@ -464,11 +377,7 @@ def document_ingest(ctx, memory_id, file_path, force, source_path):
     """📥 Ingérer un document dans une mémoire."""
     async def _run():
         try:
-            import time as _time
             from datetime import datetime, timezone
-            from rich.live import Live
-            from rich.table import Table
-            from rich.panel import Panel
 
             with open(file_path, "rb") as f:
                 content_bytes = f.read()
@@ -476,186 +385,28 @@ def document_ingest(ctx, memory_id, file_path, force, source_path):
             filename = os.path.basename(file_path)
             file_size = len(content_bytes)
             file_ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else '?'
-            
-            # Affichage pré-vol
-            console.print(Panel.fit(
-                f"[bold]Fichier:[/bold]  [cyan]{filename}[/cyan]\n"
-                f"[bold]Taille:[/bold]  [cyan]{_format_size_simple(file_size)}[/cyan]  "
-                f"[bold]Type:[/bold] [cyan]{file_ext}[/cyan]  "
-                f"[bold]Mémoire:[/bold] [cyan]{memory_id}[/cyan]"
-                + (f"\n[bold]Mode:[/bold]   [yellow]Force (ré-ingestion)[/yellow]" if force else ""),
-                title="📥 Ingestion", border_style="blue",
-            ))
-            
+
+            # Affichage pré-vol (partagé)
+            show_ingest_preflight(filename, file_size, file_ext, memory_id, force)
+
             # Métadonnées enrichies
             effective_source_path = source_path or os.path.abspath(file_path)
             mtime = os.path.getmtime(file_path)
             source_modified_at = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
 
             client = MCPClient(ctx.obj["url"], ctx.obj["token"])
-            
-            t0 = _time.monotonic()
-            import asyncio
-            import re as _re
-            
-            # État de progression parsé depuis les messages serveur
-            _progress_state = {
-                "phase": "init",          # init, upload, extract_text, extraction, neo4j, chunking, embedding, qdrant, done
-                "phase_label": "⏳ Connexion...",
-                "extraction_current": 0,
-                "extraction_total": 0,
-                "embedding_current": 0,
-                "embedding_total": 0,
-                "entities": 0,
-                "relations": 0,
-                "chunks_rag": 0,
-                "last_msg": "",
-            }
-            
-            def _make_bar(current, total, width=20):
-                """Génère une barre de progression ASCII."""
-                if total <= 0:
-                    return ""
-                pct = min(current / total, 1.0)
-                filled = int(width * pct)
-                bar = "█" * filled + "░" * (width - filled)
-                return f"{bar} {pct*100:.0f}%"
-            
-            async def _on_progress(msg: str):
-                """Parse les messages serveur et met à jour l'état de progression."""
-                st = _progress_state
-                st["last_msg"] = msg
-                
-                # Phase S3
-                if "Upload S3" in msg and "terminé" not in msg:
-                    st["phase"] = "upload"
-                    st["phase_label"] = "📤 Upload S3"
-                elif "Upload S3 terminé" in msg:
-                    st["phase_label"] = "✅ Upload S3"
-                
-                # Phase extraction texte
-                elif "Extraction texte" in msg:
-                    st["phase"] = "extract_text"
-                    st["phase_label"] = "📄 Extraction texte"
-                elif "Texte extrait" in msg:
-                    st["phase_label"] = "✅ Texte extrait"
-                
-                # Phase extraction LLM
-                elif "Extraction LLM:" in msg:
-                    m = _re.search(r'(\d+)\s*chunks?\s*\(', msg)
-                    if m:
-                        st["extraction_total"] = int(m.group(1))
-                    st["phase"] = "extraction"
-                    st["phase_label"] = "🔍 Extraction LLM"
-                    st["extraction_current"] = 0
-                elif "Chunk " in msg and "terminé" in msg:
-                    m = _re.search(r'Chunk\s+(\d+)/(\d+)', msg)
-                    if m:
-                        st["extraction_current"] = int(m.group(1))
-                        st["extraction_total"] = int(m.group(2))
-                    # Extraire cumul entités/relations
-                    m2 = _re.search(r'cumul:\s*(\d+)E\s*(\d+)R', msg)
-                    if m2:
-                        st["entities"] = int(m2.group(1))
-                        st["relations"] = int(m2.group(2))
-                elif "Extraction terminée" in msg:
-                    m = _re.search(r'(\d+)\s*entités.*?(\d+)\s*relations', msg)
-                    if m:
-                        st["entities"] = int(m.group(1))
-                        st["relations"] = int(m.group(2))
-                    st["extraction_current"] = st["extraction_total"]
-                    st["phase_label"] = "✅ Extraction LLM"
-                
-                # Phase Neo4j
-                elif "Stockage dans le graphe" in msg:
-                    st["phase"] = "neo4j"
-                    st["phase_label"] = "📊 Stockage Neo4j"
-                
-                # Phase RAG : chunking
-                elif "Chunking sémantique" in msg:
-                    st["phase"] = "chunking"
-                    st["phase_label"] = "🧩 Chunking RAG"
-                elif "Chunking terminé" in msg:
-                    m = _re.search(r'(\d+)\s*chunks', msg)
-                    if m:
-                        st["chunks_rag"] = int(m.group(1))
-                    st["phase_label"] = f"✅ {st['chunks_rag']} chunks RAG"
-                
-                # Phase RAG : embedding
-                elif "Embedding batch" in msg:
-                    st["phase"] = "embedding"
-                    m = _re.search(r'batch\s+(\d+)/(\d+)', msg)
-                    if m:
-                        st["embedding_current"] = int(m.group(1)) - 1  # en cours, pas terminé
-                        st["embedding_total"] = int(m.group(2))
-                    st["phase_label"] = "🔢 Embedding"
-                elif "Batch " in msg and "OK" in msg:
-                    m = _re.search(r'Batch\s+(\d+)/(\d+)', msg)
-                    if m:
-                        st["embedding_current"] = int(m.group(1))
-                        st["embedding_total"] = int(m.group(2))
-                
-                # Phase Qdrant stockage
-                elif "Stockage Qdrant" in msg:
-                    st["phase"] = "qdrant"
-                    st["phase_label"] = "📦 Stockage Qdrant"
-                elif "RAG:" in msg and "chunks vectorisés" in msg:
-                    st["embedding_current"] = st["embedding_total"]
-                    st["phase_label"] = "✅ RAG vectoriel"
-                
-                # Terminé
-                elif "Ingestion terminée" in msg:
-                    st["phase"] = "done"
-                    st["phase_label"] = "🏁 Terminé"
-            
-            # Affichage en temps réel avec Rich Live
-            from rich.text import Text
-            
-            with Live(console=console, refresh_per_second=4, transient=True) as live:
-                async def _update_display():
-                    while True:
-                        elapsed = _time.monotonic() - t0
-                        m, s = divmod(int(elapsed), 60)
-                        st = _progress_state
-                        
-                        lines = []
-                        lines.append(f"  [bold]{st['phase_label']}[/bold]  [dim]⏱ {m:02d}:{s:02d}[/dim]")
-                        
-                        # Barre extraction LLM
-                        if st["extraction_total"] > 0:
-                            bar = _make_bar(st["extraction_current"], st["extraction_total"])
-                            color = "green" if st["extraction_current"] >= st["extraction_total"] else "yellow"
-                            lines.append(f"  [{color}]🔍 Extraction: {bar} ({st['extraction_current']}/{st['extraction_total']} chunks)[/{color}]")
-                            if st["entities"] or st["relations"]:
-                                lines.append(f"  [dim]   → {st['entities']} entités, {st['relations']} relations[/dim]")
-                        
-                        # Barre embedding
-                        if st["embedding_total"] > 0:
-                            bar = _make_bar(st["embedding_current"], st["embedding_total"])
-                            color = "green" if st["embedding_current"] >= st["embedding_total"] else "cyan"
-                            lines.append(f"  [{color}]🔢 Embedding:  {bar} ({st['embedding_current']}/{st['embedding_total']} batches)[/{color}]")
-                        
-                        text = Text.from_markup("\n".join(lines))
-                        live.update(text)
-                        await asyncio.sleep(0.25)
-                
-                display_task = asyncio.create_task(_update_display())
-                try:
-                    result = await client.call_tool("memory_ingest", {
-                        "memory_id": memory_id,
-                        "content_base64": content_b64,
-                        "filename": filename,
-                        "force": force,
-                        "source_path": effective_source_path,
-                        "source_modified_at": source_modified_at,
-                    }, on_progress=_on_progress)
-                finally:
-                    display_task.cancel()
-            
-            elapsed = _time.monotonic() - t0
+
+            # Progression temps réel (partagée via ingest_progress.py)
+            result = await run_ingest_with_progress(client, {
+                "memory_id": memory_id,
+                "content_base64": content_b64,
+                "filename": filename,
+                "force": force,
+                "source_path": effective_source_path,
+                "source_modified_at": source_modified_at,
+            })
 
             if result.get("status") == "ok":
-                result["_elapsed_seconds"] = round(elapsed, 1)
                 show_ingest_result(result)
             elif result.get("status") == "already_exists":
                 console.print(f"[yellow]⚠️ Déjà ingéré: {result.get('document_id')} (--force pour réingérer)[/yellow]")
@@ -757,7 +508,7 @@ def document_ingest_dir(ctx, memory_id, directory, exclude, confirm, force):
 
             # --- 3. Afficher le résumé ---
             total_size = sum(f["size"] for f in to_ingest)
-            size_str = _format_size_simple(total_size)
+            size_str = format_size(total_size)
 
             summary_lines = [
                 f"[bold]Répertoire:[/bold]  [cyan]{os.path.abspath(directory)}[/cyan]",
@@ -790,7 +541,7 @@ def document_ingest_dir(ctx, memory_id, directory, exclude, confirm, force):
             table.add_column("Taille", style="dim", justify="right", width=10)
 
             for i, f in enumerate(to_ingest, 1):
-                table.add_row(str(i), f["rel_path"], _format_size_simple(f["size"]))
+                table.add_row(str(i), f["rel_path"], format_size(f["size"]))
             console.print(table)
 
             # --- 4. Ingestion ---
@@ -863,13 +614,6 @@ def document_ingest_dir(ctx, memory_id, directory, exclude, confirm, force):
     asyncio.run(_run())
 
 
-def _format_size_simple(size_bytes: int) -> str:
-    """Convertit des bytes en taille lisible."""
-    for unit in ['B', 'KB', 'MB', 'GB']:
-        if size_bytes < 1024:
-            return f"{size_bytes:.1f} {unit}"
-        size_bytes /= 1024
-    return f"{size_bytes:.1f} TB"
 
 
 @document.command("list")
@@ -1303,7 +1047,7 @@ def backup_download(ctx, backup_id, output, include_documents):
                 with open(out_file, "wb") as f:
                     f.write(archive_bytes)
                 
-                show_success(f"Archive sauvée: {out_file} ({_format_size_simple(len(archive_bytes))})")
+                show_success(f"Archive sauvée: {out_file} ({format_size(len(archive_bytes))})")
             else:
                 show_error(result.get("message", str(result)))
         except Exception as e:

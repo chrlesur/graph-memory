@@ -406,6 +406,7 @@ scripts/
 └── cli/
     ├── __init__.py       # Configuration (URL, token)
     ├── client.py         # Client HTTP/SSE vers le serveur MCP
+    ├── ingest_progress.py # Progression ingestion temps réel partagée (Rich Live + SSE)
     ├── commands.py       # Commandes Click (mode scriptable)
     ├── display.py        # Affichage Rich (tables, panels, graphe, tokens)
     └── shell.py          # Shell interactif prompt_toolkit
@@ -466,4 +467,4 @@ pip install httpx httpx-sse click rich prompt_toolkit
 
 ---
 
-*Graph Memory CLI v1.2.1 — Février 2026*
+*Graph Memory CLI v1.2.4 — Février 2026*

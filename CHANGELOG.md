@@ -7,6 +7,61 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.2.4] — 2026-02-17
+
+### 🔧 Factorisation CLI Click / Shell interactif
+
+#### Refactorisé
+- **Nouveau module `scripts/cli/ingest_progress.py`** — Toute la mécanique de progression d'ingestion temps réel (Rich Live + parsing SSE) extraite en 4 fonctions réutilisables :
+  - `create_progress_state()` : état initial de progression
+  - `make_progress_bar(current, total)` : barre ASCII `█████░░░░░ 50%`
+  - `create_progress_callback(state)` : parser async des messages serveur via regex
+  - `run_ingest_with_progress(client, params)` : coroutine complète (Rich Live display + appel MCP `memory_ingest`)
+- **`display.py` enrichi** — 4 nouvelles fonctions partagées entre CLI Click et shell interactif :
+  - `format_size()` : rendue publique (3 copies `_format_size` / `_format_size_simple` / `_fmt_size` → 1 seule)
+  - `show_ingest_preflight()` : panel pré-vol d'ingestion (fichier, taille, type, mémoire, mode force)
+  - `show_entities_by_type()` : entités groupées par type avec documents sources (mapping MENTIONS)
+  - `show_relations_by_type()` : relations par type — résumé (compteurs + exemples) ou détail filtré par type
+- **`commands.py` simplifié** — Les commandes `ingest`, `entities`, `relations` appellent les fonctions partagées au lieu de dupliquer le code.
+- **`shell.py` simplifié** — Les handlers `cmd_ingest`, `cmd_entities`, `cmd_relations` appellent les mêmes fonctions partagées.
+- **~300 lignes de duplication supprimées**, 0 changement fonctionnel.
+
+#### Architecture CLI résultante
+```
+scripts/cli/
+├── __init__.py           # Configuration (URL, token)
+├── client.py             # Client HTTP/SSE vers le serveur MCP
+├── display.py            # Affichage Rich partagé (tables, panels, entités, relations, format_size)
+├── ingest_progress.py    # Progression ingestion temps réel partagée (Rich Live + SSE)
+├── commands.py           # Commandes Click (mode scriptable)
+└── shell.py              # Shell interactif prompt_toolkit
+```
+
+#### Fichiers ajoutés/modifiés
+`scripts/cli/ingest_progress.py` (nouveau), `scripts/cli/display.py`, `scripts/cli/commands.py`, `scripts/cli/shell.py`, `VERSION`, `src/mcp_memory/__init__.py`
+
+---
+
+## [1.2.3] — 2026-02-17
+
+### 📊 Alignement Shell interactif — Progression ingestion temps réel
+
+#### Ajouté
+- **Progression ingestion temps réel dans le shell** (`scripts/cli/shell.py`) — La commande `ingest` du shell interactif affiche désormais la même progression riche que la CLI Click :
+  - Rich Live display rafraîchi 4x/seconde
+  - Barres ASCII `█████████░░░░░░░░░░░ 45%` pour l'extraction LLM (chunk par chunk) et l'embedding (batch par batch)
+  - Compteurs en temps réel : nombre d'entités et relations détectées pendant l'extraction
+  - Phases détaillées : ⏳ Connexion → 📤 Upload S3 → 📄 Extraction texte → 🔍 Extraction LLM → 📊 Neo4j → 🧩 Chunking → 🔢 Embedding → 📦 Qdrant → 🏁 Terminé
+  - Callback `on_progress` branché sur les notifications SSE du serveur (`ctx.info()`)
+
+#### Corrigé
+- **Shell `ingest` affichait un simple spinner** — Remplacé par la progression riche temps réel identique à la CLI Click.
+
+#### Fichiers modifiés
+`scripts/cli/shell.py`, `VERSION`, `src/mcp_memory/__init__.py`
+
+---
+
 ## [1.2.2] — 2026-02-17
 
 ### 🔀 Fix HTTP 421 — Connexion client à serveur distant (reverse proxy)

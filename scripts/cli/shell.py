@@ -53,8 +53,10 @@ from .display import (
     show_ingest_result, show_error, show_success, show_warning,
     show_answer, show_query_result, show_entity_context, show_storage_check,
     show_cleanup_result, show_tokens_table, show_token_created,
-    show_token_updated, console
+    show_token_updated, show_ingest_preflight, show_entities_by_type,
+    show_relations_by_type, format_size, console
 )
+from .ingest_progress import run_ingest_with_progress
 
 
 # =============================================================================
@@ -267,59 +269,8 @@ async def cmd_entities(client: MCPClient, state: dict, json_output: bool = False
         show_error(result.get("message", "Erreur"))
         return
 
-    nodes = [n for n in result.get("nodes", []) if n.get("node_type") == "entity"]
-    if not nodes:
-        show_warning("Aucune entité dans cette mémoire.")
-        return
-
-    # Construire un mapping entité → documents via les relations MENTIONS
-    # Note: les edges doc→entité ont from="doc:UUID", les entity→entity ont from="nom"
-    edges = result.get("edges", [])
-    # Mapping avec les deux formats possibles: "UUID" et "doc:UUID"
-    docs_by_id = {}
-    for d in result.get("documents", []):
-        did = d.get("id", "")
-        fname = d.get("filename", "?")
-        docs_by_id[did] = fname
-        docs_by_id[f"doc:{did}"] = fname  # Format utilisé dans get_full_graph
-
-    entity_docs = {}  # entity_label -> set of filenames
-    for e in edges:
-        if e.get("type") == "MENTIONS":
-            from_id = e.get("from", "")
-            to_label = e.get("to", "")
-            # Vérifier si c'est un lien document→entité (from contient un ID de document)
-            fname = docs_by_id.get(from_id, "")
-            if fname:
-                if to_label not in entity_docs:
-                    entity_docs[to_label] = set()
-                entity_docs[to_label].add(fname)
-
-    from collections import defaultdict
-    by_type = defaultdict(list)
-    for n in nodes:
-        by_type[n.get("type", "?")].append(n)
-
-    for etype in sorted(by_type, key=lambda t: -len(by_type[t])):
-        entities = by_type[etype]
-        table = Table(
-            title=f"[magenta]{etype}[/magenta] ({len(entities)})",
-            show_header=True, show_lines=False
-        )
-        table.add_column("Nom", style="white")
-        table.add_column("Description", style="dim", max_width=40)
-        table.add_column("Document(s)", style="cyan")
-
-        for e in entities:
-            label = e.get("label", "?")
-            doc_list = entity_docs.get(label, set())
-            doc_str = ", ".join(sorted(doc_list)) if doc_list else "-"
-            table.add_row(
-                label[:40],
-                (e.get("description", "") or "")[:40],
-                doc_str,
-            )
-        console.print(table)
+    # Affichage partagé (display.py)
+    show_entities_by_type(result)
 
 
 async def cmd_entity(client: MCPClient, state: dict, args: str, json_output: bool = False):
@@ -367,57 +318,9 @@ async def cmd_relations(client: MCPClient, state: dict, args: str = "", json_out
         show_error(result.get("message", "Erreur"))
         return
 
-    edges = result.get("edges", [])
-    if not edges:
-        show_warning("Aucune relation dans cette mémoire.")
-        return
-
+    # Affichage partagé (display.py)
     type_filter = args.strip().upper() if args.strip() else None
-
-    if type_filter:
-        # --- Mode détaillé : toutes les relations d'un type ---
-        filtered = [e for e in edges if e.get("type", "").upper() == type_filter]
-        if not filtered:
-            available = sorted(set(e.get("type", "?") for e in edges))
-            show_error(f"Type '{type_filter}' non trouvé.")
-            console.print(f"[dim]Types disponibles: {', '.join(available)}[/dim]")
-            return
-
-        table = Table(
-            title=f"🔗 {type_filter} ({len(filtered)} relations)",
-            show_header=True
-        )
-        table.add_column("De", style="white")
-        table.add_column("→", style="dim", width=2)
-        table.add_column("Vers", style="cyan")
-        table.add_column("Description", style="dim", max_width=40)
-
-        for e in filtered:
-            table.add_row(
-                e.get("from", "?")[:35],
-                "→",
-                e.get("to", "?")[:35],
-                (e.get("description", "") or "")[:40],
-            )
-        console.print(table)
-    else:
-        # --- Mode résumé : types avec compteurs ---
-        rel_types = Counter(e.get("type", "?") for e in edges)
-
-        table = Table(title=f"🔗 Relations ({len(edges)} total)", show_header=True)
-        table.add_column("Type", style="blue bold")
-        table.add_column("Nombre", style="cyan", justify="right")
-        table.add_column("Exemples", style="dim")
-
-        for rtype, count in rel_types.most_common():
-            examples = [e for e in edges if e.get("type") == rtype][:3]
-            ex_str = ", ".join(
-                f"{e.get('from', '?')} → {e.get('to', '?')}" for e in examples
-            )
-            table.add_row(rtype, str(count), ex_str[:60])
-
-        console.print(table)
-        console.print("[dim]Deepdive: relations <TYPE> (ex: relations HAS_DURATION)[/dim]")
+    show_relations_by_type(result, type_filter=type_filter)
 
 
 async def cmd_ask(client: MCPClient, state: dict, args: str, debug: bool, json_output: bool = False):
@@ -569,6 +472,11 @@ async def cmd_ingest(client: MCPClient, state: dict, args: str):
     Ingère un document dans la mémoire courante.
     
     Usage: ingest <chemin_fichier> [--force]
+    
+    Affiche une progression en temps réel :
+    - Phase courante (S3, texte, extraction LLM, Neo4j, chunking, embedding, Qdrant)
+    - Barres de progression pour extraction LLM et embedding
+    - Compteurs entités/relations en temps réel
     """
     mem = state.get("memory")
     if not mem:
@@ -589,75 +497,32 @@ async def cmd_ingest(client: MCPClient, state: dict, args: str):
     file_size = os.path.getsize(file_path)
     file_ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else '?'
 
-    def _fmt_size(n):
-        for u in ['B', 'KB', 'MB', 'GB']:
-            if n < 1024:
-                return f"{n:.1f} {u}"
-            n /= 1024
-        return f"{n:.1f} TB"
-
-    # Affichage pré-vol
-    console.print(Panel.fit(
-        f"[bold]Fichier:[/bold]  [cyan]{filename}[/cyan]\n"
-        f"[bold]Taille:[/bold]  [cyan]{_fmt_size(file_size)}[/cyan]  "
-        f"[bold]Type:[/bold] [cyan]{file_ext}[/cyan]  "
-        f"[bold]Mémoire:[/bold] [cyan]{mem}[/cyan]"
-        + (f"\n[bold]Mode:[/bold]   [yellow]Force (ré-ingestion)[/yellow]" if force else ""),
-        title="📥 Ingestion", border_style="blue",
-    ))
+    # Affichage pré-vol (partagé)
+    show_ingest_preflight(filename, file_size, file_ext, mem, force)
 
     try:
-        import time as _time
         from datetime import datetime, timezone
-        from rich.progress import Progress, SpinnerColumn, TextColumn
 
         with open(file_path, "rb") as f:
             content_bytes = f.read()
         content_b64 = base64.b64encode(content_bytes).decode("utf-8")
-        
+
         # Métadonnées enrichies
         source_path = os.path.abspath(file_path)
         mtime = os.path.getmtime(file_path)
         source_modified_at = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
 
-        t0 = _time.monotonic()
-
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("{task.description}"),
-            TextColumn("[dim]{task.fields[elapsed]}[/dim]"),
-            console=console, transient=True,
-        ) as p:
-            task = p.add_task(
-                f"S3 → LLM → Neo4j → Qdrant",
-                total=None, elapsed="",
-            )
-            
-            import asyncio
-            async def _update_timer():
-                while True:
-                    elapsed = _time.monotonic() - t0
-                    m, s = divmod(int(elapsed), 60)
-                    p.update(task, elapsed=f"⏱ {m:02d}:{s:02d}")
-                    await asyncio.sleep(1)
-            
-            timer_task = asyncio.create_task(_update_timer())
-            try:
-                result = await client.call_tool("memory_ingest", {
-                    "memory_id": mem,
-                    "content_base64": content_b64,
-                    "filename": filename,
-                    "force": force,
-                    "source_path": source_path,
-                    "source_modified_at": source_modified_at,
-                })
-            finally:
-                timer_task.cancel()
-        
-        elapsed = _time.monotonic() - t0
+        # Progression temps réel (partagée via ingest_progress.py)
+        result = await run_ingest_with_progress(client, {
+            "memory_id": mem,
+            "content_base64": content_b64,
+            "filename": filename,
+            "force": force,
+            "source_path": source_path,
+            "source_modified_at": source_modified_at,
+        })
 
         if result.get("status") == "ok":
-            result["_elapsed_seconds"] = round(elapsed, 1)
             show_ingest_result(result)
         elif result.get("status") == "already_exists":
             console.print(f"[yellow]⚠️ Déjà ingéré: {result.get('document_id')} (--force pour réingérer)[/yellow]")

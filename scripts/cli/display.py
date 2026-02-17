@@ -450,13 +450,166 @@ def show_cleanup_result(result: dict):
         console.print(table)
 
 
-def _format_size(size_bytes: int) -> str:
-    """Convertit des bytes en taille lisible."""
+def format_size(size_bytes: int) -> str:
+    """Convertit des bytes en taille lisible (ex: 1024 → '1.0 KB')."""
     for unit in ['B', 'KB', 'MB', 'GB']:
         if size_bytes < 1024:
             return f"{size_bytes:.1f} {unit}"
         size_bytes /= 1024
     return f"{size_bytes:.1f} TB"
+
+
+# Alias rétrocompatible (ancien nom privé)
+_format_size = format_size
+
+
+# =============================================================================
+# Affichage partagé : panel pré-vol d'ingestion
+# =============================================================================
+
+def show_ingest_preflight(filename: str, file_size: int, file_ext: str,
+                          memory_id: str, force: bool = False):
+    """Affiche le panel pré-vol avant une ingestion (partagé CLI Click / Shell)."""
+    console.print(Panel.fit(
+        f"[bold]Fichier:[/bold]  [cyan]{filename}[/cyan]\n"
+        f"[bold]Taille:[/bold]  [cyan]{format_size(file_size)}[/cyan]  "
+        f"[bold]Type:[/bold] [cyan]{file_ext}[/cyan]  "
+        f"[bold]Mémoire:[/bold] [cyan]{memory_id}[/cyan]"
+        + (f"\n[bold]Mode:[/bold]   [yellow]Force (ré-ingestion)[/yellow]" if force else ""),
+        title="📥 Ingestion", border_style="blue",
+    ))
+
+
+# =============================================================================
+# Affichage partagé : entités par type (avec documents sources)
+# =============================================================================
+
+def show_entities_by_type(graph_data: dict):
+    """
+    Affiche les entités par type avec leurs documents sources.
+
+    Extrait les entités du graphe, mappe les relations MENTIONS vers les
+    noms de fichiers, et affiche un tableau par type d'entité.
+    Retourne True si des entités existent, False sinon.
+
+    Utilisé par : commands.py (memory_entities) et shell.py (cmd_entities).
+    """
+    nodes = [n for n in graph_data.get("nodes", []) if n.get("node_type") == "entity"]
+    if not nodes:
+        show_warning("Aucune entité dans cette mémoire.")
+        return False
+
+    # Mapping entité → documents via MENTIONS
+    edges = graph_data.get("edges", [])
+    docs_by_id = {}
+    for d in graph_data.get("documents", []):
+        did = d.get("id", "")
+        fname = d.get("filename", "?")
+        docs_by_id[did] = fname
+        docs_by_id[f"doc:{did}"] = fname
+
+    entity_docs = {}
+    for e in edges:
+        if e.get("type") == "MENTIONS":
+            from_id = e.get("from", "")
+            to_label = e.get("to", "")
+            fname = docs_by_id.get(from_id, "")
+            if fname:
+                entity_docs.setdefault(to_label, set()).add(fname)
+
+    by_type = defaultdict(list)
+    for n in nodes:
+        by_type[n.get("type", "?")].append(n)
+
+    for etype in sorted(by_type, key=lambda t: -len(by_type[t])):
+        entities = by_type[etype]
+        table = Table(
+            title=f"[magenta]{etype}[/magenta] ({len(entities)})",
+            show_header=True, show_lines=False
+        )
+        table.add_column("Nom", style="white")
+        table.add_column("Description", style="dim", max_width=40)
+        table.add_column("Document(s)", style="cyan")
+
+        for ent in entities:
+            label = ent.get("label", "?")
+            doc_list = entity_docs.get(label, set())
+            doc_str = ", ".join(sorted(doc_list)) if doc_list else "-"
+            table.add_row(
+                label[:40],
+                (ent.get("description", "") or "")[:40],
+                doc_str,
+            )
+        console.print(table)
+
+    return True
+
+
+# =============================================================================
+# Affichage partagé : relations par type
+# =============================================================================
+
+def show_relations_by_type(graph_data: dict, type_filter: str = None):
+    """
+    Affiche les relations du graphe.
+
+    - Sans type_filter : résumé avec compteurs par type et exemples.
+    - Avec type_filter : liste détaillée de toutes les relations de ce type.
+    Retourne True si des relations existent, False sinon.
+
+    Utilisé par : commands.py (memory_relations) et shell.py (cmd_relations).
+    """
+    edges = graph_data.get("edges", [])
+    if not edges:
+        show_warning("Aucune relation dans cette mémoire.")
+        return False
+
+    if type_filter:
+        # --- Mode détaillé : toutes les relations d'un type ---
+        filtered = [e for e in edges if e.get("type", "").upper() == type_filter.upper()]
+        if not filtered:
+            available = sorted(set(e.get("type", "?") for e in edges))
+            show_error(f"Type '{type_filter}' non trouvé.")
+            console.print(f"[dim]Types disponibles: {', '.join(available)}[/dim]")
+            return True  # Des relations existent, juste pas ce type
+
+        table = Table(
+            title=f"🔗 {type_filter.upper()} ({len(filtered)} relations)",
+            show_header=True
+        )
+        table.add_column("De", style="white")
+        table.add_column("→", style="dim", width=2)
+        table.add_column("Vers", style="cyan")
+        table.add_column("Description", style="dim", max_width=40)
+
+        for e in filtered:
+            table.add_row(
+                e.get("from", "?")[:35],
+                "→",
+                e.get("to", "?")[:35],
+                (e.get("description", "") or "")[:40],
+            )
+        console.print(table)
+    else:
+        # --- Mode résumé : compteurs par type ---
+        rel_types = Counter(e.get("type", "?") for e in edges)
+        table = Table(title=f"🔗 Relations ({len(edges)} total)", show_header=True)
+        table.add_column("Type", style="blue bold")
+        table.add_column("Nombre", style="cyan", justify="right")
+        table.add_column("Exemples", style="dim")
+
+        for rtype, count in rel_types.most_common():
+            examples = [e for e in edges if e.get("type") == rtype][:3]
+            ex_str = ", ".join(
+                f"{e.get('from', '?')} → {e.get('to', '?')}" for e in examples
+            )
+            table.add_row(rtype, str(count), ex_str[:60])
+
+        console.print(table)
+        if not type_filter:
+            console.print("[dim]Deepdive: relations <TYPE> (ex: relations HAS_DURATION)[/dim]")
+
+    return True
 
 
 # =============================================================================
