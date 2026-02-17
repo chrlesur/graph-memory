@@ -7,6 +7,22 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.2.2] — 2026-02-17
+
+### 🔀 Fix HTTP 421 — Connexion client à serveur distant (reverse proxy)
+
+#### Corrigé
+- **HTTP 421 "Invalid Host header" sur /sse et /messages** (`src/mcp_memory/auth/middleware.py`, `src/mcp_memory/server.py`) — Le MCP SDK (Starlette) rejetait les requêtes SSE provenant de reverse proxies (nginx → Caddy → MCP) car le `Host` header contenait le nom de domaine public (`graph-mem.mcp.cloud-temple.app`) au lieu de `localhost:8002`. Les routes `/api/*` fonctionnaient car interceptées par `StaticFilesMiddleware` avant d'atteindre Starlette, mais `/sse` et `/messages/*` échouaient systématiquement.
+  - **Fix** : Nouveau `HostNormalizerMiddleware` ASGI inséré entre `StaticFilesMiddleware` et `mcp.sse_app()`. Normalise le `Host` header vers `localhost` avant que la requête n'atteigne le MCP SDK. Log `🔀 [Host]` en mode debug.
+
+#### Amélioré
+- **Messages d'erreur client** (`scripts/cli/client.py`) — Nouvelle méthode `_extract_root_cause()` qui descend récursivement dans les `ExceptionGroup`/`TaskGroup` pour extraire le vrai message d'erreur. Avant : message cryptique `"unhandled errors in a TaskGroup (1 sub-exception)"`. Après : message clair avec suggestion de diagnostic (`HostNormalizerMiddleware`, HTTP 421).
+
+#### Fichiers modifiés
+`src/mcp_memory/auth/middleware.py`, `src/mcp_memory/server.py`, `scripts/cli/client.py`, `VERSION`, `src/mcp_memory/__init__.py`
+
+---
+
 ## [1.2.1] — 2026-02-17
 
 ### 🐛 Fix CLI production — Variables MCP_URL / MCP_TOKEN

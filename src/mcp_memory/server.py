@@ -22,7 +22,7 @@ load_dotenv()
 from mcp.server.fastmcp import FastMCP, Context
 
 from .config import get_settings
-from .auth.middleware import AuthMiddleware, LoggingMiddleware, StaticFilesMiddleware
+from .auth.middleware import AuthMiddleware, LoggingMiddleware, StaticFilesMiddleware, HostNormalizerMiddleware
 from .auth.context import check_memory_access, check_write_permission, current_auth
 
 
@@ -2153,8 +2153,16 @@ def main():
     base_app = mcp.sse_app()
     
     # Empiler les middlewares (le dernier wrappé est le premier exécuté)
-    # Flux requête : AuthMiddleware → LoggingMiddleware → StaticFilesMiddleware → MCP app
-    app = StaticFilesMiddleware(base_app)
+    # Flux requête : AuthMiddleware → LoggingMiddleware → StaticFilesMiddleware
+    #                → HostNormalizerMiddleware → MCP SSE app
+    #
+    # HostNormalizerMiddleware : normalise le Host header pour que le MCP SDK
+    # (Starlette) accepte les requêtes provenant de reverse proxies (nginx, Caddy)
+    # qui transmettent le Host public (ex: "graph-mem.mcp.cloud-temple.app")
+    # au lieu de "localhost:8002". Sans ce middleware, /sse et /messages
+    # retournent HTTP 421 "Invalid Host header".
+    app = HostNormalizerMiddleware(base_app)
+    app = StaticFilesMiddleware(app)
     app = LoggingMiddleware(app, debug=args.debug)
     app = AuthMiddleware(app, debug=args.debug)
     

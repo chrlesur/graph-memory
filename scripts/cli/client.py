@@ -153,6 +153,15 @@ class MCPClient:
                           f"retry dans {wait_time}s...", file=sys.stderr)
                     await asyncio.sleep(wait_time)
                     continue
+                # Extraire le message utile des TaskGroup/ExceptionGroup
+                detail = self._extract_root_cause(e)
+                if detail and detail != str(e):
+                    raise RuntimeError(
+                        f"{detail}\n\n"
+                        f"💡 Si le serveur est derrière un reverse proxy, vérifiez que "
+                        f"le HostNormalizerMiddleware est actif (HTTP 421 = Host header rejeté).\n"
+                        f"   URL: {self.base_url}/sse"
+                    ) from None
                 raise
 
         # Si on arrive ici, tous les retries ont échoué
@@ -197,6 +206,40 @@ class MCPClient:
             return True
         
         return False
+
+    @staticmethod
+    def _extract_root_cause(exc: BaseException) -> str:
+        """
+        Extrait le message d'erreur utile d'un TaskGroup/ExceptionGroup.
+        
+        Le MCP SDK wrappe souvent les vraies erreurs dans un ExceptionGroup
+        (ex: "unhandled errors in a TaskGroup (1 sub-exception)").
+        Cette méthode descend récursivement pour trouver le vrai message.
+        """
+        messages = []
+        
+        # Parcourir les sous-exceptions d'un ExceptionGroup
+        if hasattr(exc, 'exceptions'):
+            for sub in exc.exceptions:
+                sub_msg = MCPClient._extract_root_cause(sub)
+                if sub_msg:
+                    messages.append(sub_msg)
+        
+        # Vérifier __cause__ (chainage d'exceptions)
+        if exc.__cause__:
+            cause_msg = MCPClient._extract_root_cause(exc.__cause__)
+            if cause_msg:
+                messages.append(cause_msg)
+        
+        if messages:
+            return " → ".join(messages)
+        
+        # Message direct de l'exception
+        msg = str(exc)
+        if msg and "TaskGroup" not in msg and "sub-exception" not in msg:
+            return f"{type(exc).__name__}: {msg}"
+        
+        return ""
 
     @staticmethod
     def _is_connection_error(exc: BaseException) -> bool:
