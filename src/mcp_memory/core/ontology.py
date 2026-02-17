@@ -35,8 +35,8 @@ class RelationTypeDefinition:
 @dataclass
 class ExtractionRules:
     """Règles d'extraction."""
-    max_entities: int = 30
-    max_relations: int = 40
+    max_entities: int = 60
+    max_relations: int = 80
     include_metrics: bool = True
     include_durations: bool = True
     include_amounts: bool = True
@@ -252,8 +252,8 @@ class OntologyManager:
         # Parser les règles d'extraction
         rules_data = data.get('extraction_rules', {})
         extraction_rules = ExtractionRules(
-            max_entities=rules_data.get('max_entities', 30),
-            max_relations=rules_data.get('max_relations', 40),
+            max_entities=rules_data.get('max_entities', 60),
+            max_relations=rules_data.get('max_relations', 80),
             include_metrics=rules_data.get('include_metrics', True),
             include_durations=rules_data.get('include_durations', True),
             include_amounts=rules_data.get('include_amounts', True),

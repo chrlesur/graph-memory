@@ -33,6 +33,11 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
 > Historique complet : voir [CHANGELOG.md](CHANGELOG.md)
 
+### v1.3.0 — 17 février 2026 — 🧠 Ontologie Presales + Uniformisation des limites
+- ✨ **Nouvelle ontologie `presales`** — 28 types d'entités (6 familles) + 30 types de relations (5 familles) pour l'analyse de documents avant-vente (RFP, RFI, propositions commerciales, études de cas)
+- 📐 **Uniformisation des limites d'extraction** — Toutes les ontologies passent à `max_entities: 60` / `max_relations: 80` (précédemment 30/40 par défaut, ou 50/60 pour certaines)
+- 🔧 **Défauts Python alignés** — `ExtractionRules` dans `ontology.py` : max_entities 30→60, max_relations 40→80
+
 ### v1.2.4 — 17 février 2026 — 🔧 Factorisation CLI Click / Shell
 - 🔧 **Code unifié** — `commands.py` (Click) et `shell.py` (Interactif) partagent désormais la même logique d'affichage et de progression (`ingest_progress.py`, `display.py`).
 - 📊 **Progression ingestion unifiée** — Le shell interactif bénéficie des barres de progression riches et du parsing SSE temps réel (alignement v1.2.3).
@@ -491,12 +496,15 @@ Les ontologies définissent les **types d'entités** et **types de relations** q
 
 ### Ontologies fournies
 
-| Ontologie          | Fichier                            | Entités  | Relations | Usage                          |
-| ------------------ | ---------------------------------- | -------- | --------- | ------------------------------ |
-| `legal`            | `ONTOLOGIES/legal.yaml`            | 22 types | 22 types  | Documents juridiques, contrats |
-| `cloud`            | `ONTOLOGIES/cloud.yaml`            | —        | —         | Infrastructure cloud           |
-| `managed-services` | `ONTOLOGIES/managed-services.yaml` | —        | —         | Services managés               |
-| `technical`        | `ONTOLOGIES/technical.yaml`        | —        | —         | Documentation technique        |
+| Ontologie          | Fichier                            | Entités  | Relations | Usage                                            |
+| ------------------ | ---------------------------------- | -------- | --------- | ------------------------------------------------ |
+| `legal`            | `ONTOLOGIES/legal.yaml`            | 22 types | 22 types  | Documents juridiques, contrats                   |
+| `cloud`            | `ONTOLOGIES/cloud.yaml`            | 20 types | 14 types  | Infrastructure cloud                             |
+| `managed-services` | `ONTOLOGIES/managed-services.yaml` | 20 types | 16 types  | Services managés, infogérance                    |
+| `technical`        | `ONTOLOGIES/technical.yaml`        | 27 types | 16 types  | Documentation technique, API                     |
+| `presales`         | `ONTOLOGIES/presales.yaml`         | 28 types | 30 types  | Avant-vente, RFP/RFI, propositions commerciales  |
+
+> Toutes les ontologies utilisent les limites d'extraction `max_entities: 60` / `max_relations: 80`.
 
 ### Format d'une ontologie
 
@@ -724,10 +732,11 @@ graph-memory/
 │   └── Caddyfile             # Config OWASP CRS + headers + TLS Let's Encrypt
 │
 ├── ONTOLOGIES/               # Ontologies d'extraction
-│   ├── legal.yaml            # Documents juridiques (22 types entités + relations)
-│   ├── cloud.yaml            # Infrastructure cloud
-│   ├── managed-services.yaml # Services managés
-│   └── technical.yaml        # Documentation technique
+│   ├── legal.yaml            # Documents juridiques (22 entités, 22 relations)
+│   ├── cloud.yaml            # Infrastructure cloud (20 entités, 14 relations)
+│   ├── managed-services.yaml # Services managés (20 entités, 16 relations)
+│   ├── technical.yaml        # Documentation technique (27 entités, 16 relations)
+│   └── presales.yaml         # Avant-vente / RFP (28 entités, 30 relations) [v1.3.0]
 │
 ├── scripts/                  # CLI et utilitaires
 │   ├── mcp_cli.py            # Point d'entrée CLI (Click + Shell)
@@ -839,4 +848,4 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
 ---
 
-*Graph Memory v1.2.4 — Février 2026*
+*Graph Memory v1.3.0 — Février 2026*

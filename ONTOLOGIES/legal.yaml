@@ -350,6 +350,8 @@ relation_types:
 # Règles d'extraction spécifiques
 # =============================================================================
 extraction_rules:
+  max_entities: 60
+  max_relations: 80
   include_metrics: true
   include_durations: true
   include_amounts: true

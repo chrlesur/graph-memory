@@ -7,6 +7,39 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.3.0] — 2026-02-17
+
+### 🧠 Ontologie Presales + Uniformisation des limites d'extraction
+
+#### Ajouté
+- **Nouvelle ontologie `presales`** (`ONTOLOGIES/presales.yaml`) — Ontologie dédiée à l'analyse de documents avant-vente (RFP, RFI, propositions commerciales, études de cas) :
+  - **28 types d'entités** en 6 familles : Acteurs & Personnes (Organization, Person, Role, Team, Persona), Sécurité & Conformité (Certification, Regulation, SecurityPolicy), Technique & Infrastructure (Platform, Technology, Infrastructure, Service, Methodology), Gouvernance & Méthodologie (Governance, ProjectPhase, Deliverable), Commercial & Valeur (Differentiator, ValueProposition, SLA, PricingModel, Quote, Constraint, Requirement, ClientReference), Contexte & Indicateurs (KPI, PresalesDomain, Evidence, ProposalSection)
+  - **30 types de relations** en 5 familles : Capacité & Conformité (PROVIDES, HAS_CERTIFICATION, COMPLIANT_WITH, GUARANTEES, REQUIRES), Technique (RUNS_ON, HOSTED_AT, INTEGRATES_WITH, MANAGED_BY, POWERED_BY), Gouvernance (FOLLOWS_METHODOLOGY, GOVERNED_BY, RESPONSIBLE_FOR, INCLUDES_PHASE, DELIVERS), Commerciale (DIFFERENTIATES_FROM, TARGETS_PERSONA, PRICED_AS, HAS_SLA, REFERENCED_BY, ANSWERED_BY), Structurelle & Contexte (PART_OF_DOMAIN, RELATED_TO, SUPERSEDES, CONTAINS, MEASURES, ADDRESSES_RISK, DEPENDS_ON, PROVEN_BY, CONSTRAINED_BY)
+  - Entités prioritaires : `Service`, `Certification`, `Differentiator`, `Requirement`, `SLA`, `ClientReference`
+  - Relations prioritaires : `HAS_CERTIFICATION`, `GUARANTEES`, `TARGETS_PERSONA`, `ANSWERED_BY`, `PART_OF_DOMAIN`, `PROVEN_BY`
+  - Limites `max_entities: 60` / `max_relations: 80` alignées sur le nouveau standard
+
+#### Modifié
+- **Uniformisation des limites d'extraction** (`ONTOLOGIES/*.yaml`, `src/mcp_memory/core/ontology.py`) — Toutes les ontologies ont maintenant les mêmes limites :
+
+  | Ontologie          | Avant       | Après  |
+  | ------------------ | ----------- | ------ |
+  | `legal.yaml`       | absent      | 60/80  |
+  | `cloud.yaml`       | 50/60       | 60/80  |
+  | `technical.yaml`   | 60/70       | 60/80  |
+  | `managed-services.yaml` | 50/60  | 60/80  |
+  | `presales.yaml`    | 60/80       | 60/80  |
+
+- **Défauts Python** (`core/ontology.py`) — `ExtractionRules.max_entities` 30→**60**, `ExtractionRules.max_relations` 40→**80** (pour les ontologies futures qui n'expliciteraient pas ces valeurs)
+
+#### Corrigé
+- **Syntaxe YAML invalide dans `presales.yaml`** — Le pattern `- "Texte" (annotation)` était illégal (scalaire inattendu après string terminée). Corrigé en `- "Texte (annotation)"` sur 8 blocs (Organization, Person, Persona, Methodology, Technology, KPI, PresalesDomain).
+
+#### Fichiers ajoutés/modifiés
+`ONTOLOGIES/presales.yaml` (nouveau), `ONTOLOGIES/legal.yaml`, `ONTOLOGIES/cloud.yaml`, `ONTOLOGIES/technical.yaml`, `ONTOLOGIES/managed-services.yaml`, `src/mcp_memory/core/ontology.py`, `VERSION`, `src/mcp_memory/__init__.py`
+
+---
+
 ## [1.2.4] — 2026-02-17
 
 ### 🔧 Factorisation CLI Click / Shell interactif
