@@ -36,7 +36,7 @@ context: |
      Ex: "NPS 42 (2024, objectif 50 en 2025)" et non "NPS" seul.
 
   4. RÉFÉRENCES CLIENTS : Intègre budget, durée et secteur dans le nom.
-     Ex: "SUEZ (3.8M€/an, 15 ans, Eau/Déchets)" et non "SUEZ" seul.
+     Ex: "Acme Corp (2.5M€/an, 10 ans, Industrie/Énergie)" et non "Acme Corp" seul.
 
   5. SPECS PRODUITS : Pour les matrices de produits (Fortinet, serveurs, etc.),
      chaque modèle est un ProductModel avec ses Specifications.
@@ -109,24 +109,24 @@ entity_types:
   - name: Person
     description: Personne physique nommée
     examples:
-      - "Christophe Lesur (DG Cloud Temple)"
+      - "Jean Dupont (Directeur Technique)"
 
   - name: ClientReference
     description: Référence client avec contexte (secteur, budget, durée, périmètre)
     priority: high
     examples:
-      - "Groupe Avril (Agroalimentaire, 3M€/an, 1200 VM)"
-      - "AMF (Régulateur financier, 2M€/an, 850 VM)"
-      - "SUEZ (Eau/Déchets, 3.8M€/an, 15 ans, LPM/NIS2)"
-      - "ANS — SI SAMU (Santé, 850k€/an, partenariat Thales)"
+      - "Groupe Agralis (Agroalimentaire, 1.5M€/an, 800 VM)"
+      - "FinRégul (Régulateur financier, 1.2M€/an, 500 VM)"
+      - "AquaNova (Environnement, 2.5M€/an, 200+ VM, 10 ans, NIS2)"
+      - "Agence Santé — SI Urgences (Santé, 600k€/an)"
 
   - name: Partner
     description: Partenaire technologique, commercial ou intégrateur
     examples:
-      - "Atos (partenaire sur appels d'offres publics)"
-      - "Intrinsec (CERT PRIS qualifié ANSSI)"
-      - "Thales (partenariat ANS/SI-SAMU)"
-      - "Systema Conseil (conformité HDS)"
+      - "AlphaTech (partenaire sur appels d'offres publics)"
+      - "CyberSec Partners (CERT qualifié ANSSI)"
+      - "DefenseTech (partenariat défense/santé)"
+      - "AuditConseil (conformité HDS)"
 
   # ---------------------------------------------------------------------------
   # ⚙️ FAMILLE 3 : PRODUITS & TECHNOLOGIE
@@ -355,12 +355,12 @@ relation_types:
     description: Un produit/solution a été déployé pour un client
     priority: high
     examples:
-      - "Cloud SecNumCloud → DEPLOYED_FOR → AMF (850 VM, 2M€/an)"
+      - "Cloud SecNumCloud → DEPLOYED_FOR → FinRégul (500 VM, 1.2M€/an)"
 
   - name: PARTNERED_WITH
     description: Une organisation a un partenariat avec une autre
     examples:
-      - "Cloud Temple → PARTNERED_WITH → Atos"
+      - "Cloud Temple → PARTNERED_WITH → AlphaTech"
 
   # ---------------------------------------------------------------------------
   # STRATÉGIE & INDICATEURS
@@ -426,8 +426,8 @@ extraction_rules:
     # --- RÈGLES POUR LES RÉFÉRENCES CLIENTS ---
     - Intègre TOUJOURS budget annuel, nombre de VM, durée de relation et secteur
       dans le nom de l'entité ClientReference.
-      ✅ "AMF (Régulateur, 2M€/an, 850 VM)"
-      ❌ "AMF" seul + entité "Budget 2M€" séparée
+      ✅ "FinRégul (Régulateur, 1.2M€/an, 500 VM)"
+      ❌ "FinRégul" seul + entité "Budget 1.2M€" séparée
 
     # --- RÈGLES POUR LES SPECS PRODUITS (Fortinet, serveurs, etc.) ---
     - Chaque modèle distinct = une entité ProductModel.
@@ -511,20 +511,19 @@ examples:
       - {from: "Protection anti-DDoS disponible ?", to: "Réseau (section 2.1.1)", type: "PART_OF"}
       - {from: "Anti-DDoS", to: "Cloud Temple", type: "PROVIDES"}
 
-  - context: "Référence client — SUEZ"
+  - context: "Référence client — AquaNova"
     input: |
-      Client : le groupe SUEZ
-      Infrastructures : Cloud de confiance SecNumCloud, CMP Shiva, LPM, NIS2.
-      Plus de 300 VM, coût annuel 3,8 M€, confiance renouvelée depuis 15 ans.
+      Client : le groupe AquaNova
+      Infrastructures : Cloud de confiance SecNumCloud, CMP Shiva, NIS2.
+      Plus de 200 VM, coût annuel 2,5 M€, confiance renouvelée depuis 10 ans.
     expected_entities:
-      - {name: "SUEZ (Eau/Déchets, 3.8M€/an, 300+ VM, 15 ans, LPM/NIS2)", type: "ClientReference"}
+      - {name: "AquaNova (Environnement, 2.5M€/an, 200+ VM, 10 ans, NIS2)", type: "ClientReference"}
       - {name: "Cloud de confiance SecNumCloud", type: "Product"}
       - {name: "Console CMP Shiva", type: "Technology"}
       - {name: "NIS2 (Directive EU 2022/2555)", type: "Regulation"}
-      - {name: "LPM (Loi de Programmation Militaire)", type: "Regulation"}
     expected_relations:
-      - {from: "Cloud de confiance SecNumCloud", to: "SUEZ", type: "DEPLOYED_FOR"}
-      - {from: "SUEZ", to: "NIS2", type: "COMPLIANT_WITH"}
+      - {from: "Cloud de confiance SecNumCloud", to: "AquaNova", type: "DEPLOYED_FOR"}
+      - {from: "AquaNova", to: "NIS2", type: "COMPLIANT_WITH"}
 
   - context: "Bilan RSE — indicateurs"
     input: |

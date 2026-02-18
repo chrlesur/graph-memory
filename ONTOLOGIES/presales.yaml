@@ -54,13 +54,13 @@ entity_types:
       - "Groupe Neurones"
       - "ANSSI"
       - "Cisco (Partenaire)"
-      - "Groupe Avril (Client)"
+      - "Groupe Agralis (Client)"
 
   - name: Person
     description: Personne physique nommée (expert, dirigeant, contact clé)
     examples:
-      - "Christophe Lesur (Directeur Général)"
-      - "Sébastien Lescop (Directeur Général)"
+      - "Jean Dupont (Directeur Général)"
+      - "Marie Martin (Directrice Technique)"
       - "Responsable Sécurité des Systèmes d'Information RSSI (si nommé)"
 
   - name: Role
@@ -267,11 +267,11 @@ entity_types:
   - name: ClientReference
     description: Référence client citée comme preuve (inclut le nom, secteur, budget annuel et durée de relation si disponibles)
     examples:
-      - "Groupe Avril (Industrie, 3M€/an)"
-      - "Agence du Numérique en Santé (Public)"
-      - "CEA (10M€/an, depuis 15 ans)"
-      - "SUEZ (Infogérance, 3.8M€/an, 15 ans)"
-      - "CNRS (48 mois, Recherche)"
+      - "Groupe Agralis (Industrie, 1.5M€/an)"
+      - "Agence Nationale de Santé (Public)"
+      - "Institut Recherche Avancée (5M€/an, depuis 10 ans)"
+      - "AquaNova (Infogérance, 2.5M€/an, 10 ans)"
+      - "Labo Sciences (36 mois, Recherche)"
 
   - name: KPI
     description: Indicateur de performance, métrique chiffrée ou score
@@ -442,7 +442,7 @@ relation_types:
   - name: REFERENCED_BY
     description: Un service ou capacité est validé par une référence client
     examples:
-      - "Migration massive → REFERENCED_BY → Groupe Avril"
+      - "Migration massive → REFERENCED_BY → Groupe Agralis"
 
   - name: ANSWERED_BY
     description: Une exigence client est couverte par une solution/argument
@@ -543,7 +543,7 @@ extraction_rules:
     
     - Pour les Références Clients, cherche le triplet : Nom Client + Secteur + Cas d'usage.
       Intègre le budget annuel et la durée de relation dans le NOM de l'entité ClientReference
-      (ex: "SUEZ (3.8M€/an, 15 ans)" et non deux entités séparées "SUEZ" + "Budget 3.8M€").
+      (ex: "AquaNova (2.5M€/an, 10 ans)" et non deux entités séparées "AquaNova" + "Budget 2.5M€").
 
     - ⚠️ MAPPING OBLIGATOIRE : les types "MonetaryAmount" et "Duration" N'EXISTENT PAS dans cette ontologie.
       Si tu veux extraire un montant (budget, prix, valeur contrat), intègre-le dans l'entité ClientReference

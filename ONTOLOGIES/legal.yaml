@@ -69,7 +69,7 @@ entity_types:
   - name: LegalRepresentative
     description: Représentant légal, signataire habilité
     examples:
-      - "M. Christophe Lesur, Directeur Général"
+      - "M. Jean Dupont, Directeur Général"
       - "Mme Sophie Martin, dûment habilitée"
       - "Le Président du Conseil d'Administration"
 
@@ -229,12 +229,12 @@ relation_types:
   - name: SIGNED_BY
     description: Document signé par une personne
     examples:
-      - "Contrat → SIGNED_BY → Christophe Lesur"
+      - "Contrat → SIGNED_BY → Jean Dupont"
 
   - name: REPRESENTS
     description: Représente une organisation
     examples:
-      - "Christophe Lesur → REPRESENTS → Cloud Temple SAS"
+      - "Jean Dupont → REPRESENTS → Cloud Temple SAS"
 
   - name: INCLUDES_ANNEX
     description: Le contrat inclut une annexe
@@ -391,7 +391,7 @@ extraction_rules:
 examples:
   - input: |
       CONTRAT CADRE D'HÉBERGEMENT SECNUMCLOUD
-      Entre Cloud Temple SAS, représentée par M. Christophe Lesur, Directeur Général,
+      Entre Cloud Temple SAS, représentée par M. Jean Dupont, Directeur Général,
       Et TechCorp SARL, représentée par Mme Sophie Martin, Présidente,
       Pour une durée initiale de 36 mois, renouvelable par tacite reconduction.
       Prix forfaitaire mensuel: 8 500 EUR HT.
@@ -399,14 +399,14 @@ examples:
     expected_entities:
       - {name: "Cloud Temple SAS", type: "Party", description: "Prestataire"}
       - {name: "TechCorp SARL", type: "Party", description: "Client"}
-      - {name: "Christophe Lesur", type: "LegalRepresentative", description: "DG de Cloud Temple"}
+      - {name: "Jean Dupont", type: "LegalRepresentative", description: "DG de Cloud Temple"}
       - {name: "Sophie Martin", type: "LegalRepresentative", description: "Présidente de TechCorp"}
       - {name: "Contrat Cadre d'Hébergement SecNumCloud", type: "ContractType"}
       - {name: "36 mois", type: "Duration", description: "Durée initiale"}
       - {name: "8 500 EUR HT/mois", type: "Amount", description: "Prix forfaitaire mensuel"}
       - {name: "Disponibilité 99.95%", type: "SLA"}
     expected_relations:
-      - {from: "Christophe Lesur", to: "Cloud Temple SAS", type: "REPRESENTS"}
+      - {from: "Jean Dupont", to: "Cloud Temple SAS", type: "REPRESENTS"}
       - {from: "Sophie Martin", to: "TechCorp SARL", type: "REPRESENTS"}
       - {from: "Contrat", to: "36 mois", type: "HAS_DURATION"}
       - {from: "Hébergement", to: "8 500 EUR HT/mois", type: "HAS_AMOUNT"}
