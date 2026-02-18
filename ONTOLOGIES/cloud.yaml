@@ -6,7 +6,7 @@
 # fiches produits et documentation technique Cloud Temple.
 
 name: cloud
-version: "1.1"
+version: "1.2"
 description: |
   Ontologie spécialisée pour les documents d'infrastructure cloud.
   Optimisée pour extraire les services cloud, architectures, certifications,
@@ -208,6 +208,17 @@ entity_types:
       - "RPO 1 heure"
       - "RTO 4 heures"
 
+  - name: SLALevel
+    description: Niveau de priorité, d'impact ou de criticité dans la matrice de support
+    examples:
+      - "Priorité P1 (GTI 30min, perf 95%)"
+      - "Priorité P2 (GTI 2h, perf 90%)"
+      - "Priorité P3 (GTI 4h, perf 90%)"
+      - "Impact I1 (Services interrompus)"
+      - "Impact I2 (Services dégradés)"
+      - "Criticité C1 (Dégradation rapide)"
+      - "Matrice Priorité SLA"
+
   - name: PerformanceMetric
     description: Métrique de performance
     examples:
@@ -264,6 +275,16 @@ entity_types:
       - "Cisco"
       - "IBM"
       - "VMware"
+
+  - name: Role
+    description: Rôle IAM, profil de permission ou fonction dans la console
+    examples:
+      - "Mainteneur"
+      - "Ecrivain"
+      - "Lecteur"
+      - "Ecrivain et Lecteur"
+      - "Administrateur"
+      - "Opérateur"
 
   # API et Interfaces
   - name: API
@@ -406,6 +427,7 @@ extraction_rules:
     - PricingModel
 
   special_instructions: |
+    # --- RÈGLES D'EXTRACTION MÉTIER ---
     - Identifie TOUTES les certifications mentionnées avec leur version si disponible
     - Extrais les SLA avec leurs valeurs exactes (%, heures, minutes)
     - Identifie les technologies et leurs versions
@@ -417,6 +439,73 @@ extraction_rules:
     - Pour les fiches produits : extrais la tarification (prix, unités, packs)
     - Pour les fiches produits : identifie les compatibilités et dépendances entre services
     - Pour les modèles IA (LLMaaS) : extrais le nom du modèle, sa taille, ses capacités
+
+    # --- MAPPINGS OBLIGATOIRES (types qui N'EXISTENT PAS dans cette ontologie) ---
+
+    - ⚠️ Les niveaux de priorité d'incidents (P1-P5), niveaux d'impact (I1-I3) et niveaux de criticité (C1-C3)
+      sont des **SLALevel**. La matrice de priorité est aussi un SLALevel.
+      Intègre le GTI et l'objectif de performance dans le nom
+      (ex: "Priorité P1 (GTI 30min, perf 95%)" et non "Priority_P1" seul).
+
+    - ⚠️ Les endpoints d'API (/v1/chat/completions, /v1/models, /v1/completions) sont des **API**.
+      Ne crée JAMAIS de type "Endpoint" — utilise API.
+
+    - ⚠️ Les licences firewall (FTG2, FTG4, FTG8, vDOM) sont des **PricingModel**.
+      Inclus le SKU dans le nom (ex: "Licence FortiGate VM02V (csp:fr1:licence:fw:ftg2)").
+      Ne crée JAMAIS de type "Licence" ou "License" — utilise PricingModel.
+
+    - ⚠️ Les configurations HA (cluster Active-Passive, failover) sont des **Technology**.
+      (ex: "HA Cluster FortiGate Active-Passive").
+      Ne crée JAMAIS de type "HACluster" ou "HAMode".
+
+    - ⚠️ Les capacités réseau (VLAN tagging, trunking, port mirroring, SRV-IO)
+      sont des **NetworkComponent**.
+      Ne crée JAMAIS de type "Feature" ou "NetworkFeature".
+
+    - ⚠️ Les offres d'hébergement physique (mutualisé, dédié, hands & eyes)
+      sont des **CloudService**.
+      Ne crée JAMAIS de type "Hosting" ou "PhysicalHosting".
+
+    - ⚠️ Les rôles de permission (Mainteneur, Ecrivain, Lecteur, Administrateur, Opérateur)
+      sont des **Role**.
+      Ne crée JAMAIS de type "Permission" ou "IAMRole".
+
+    - ⚠️ Les contraintes architecturales (obligation de 2 AZ, prérequis techniques)
+      sont des **SLA** ou intégrées dans la description du CloudService associé.
+      Ne crée JAMAIS de type "Requirement" — utilise SLA ou REQUIRES relation.
+
+    - ⚠️ Les durées, préavis, délais et engagements contractuels (préavis 3 mois, délai 21 jours,
+      engagement 36 mois) doivent être INTÉGRÉS dans le nom du SLA ou PricingModel associé.
+      Ne crée JAMAIS de type "Duration", "Engagement", "Delay", "Period" ou "Timeframe".
+
+    - ⚠️ Les langues de support (français, anglais) doivent être intégrées dans le SLA correspondant
+      (ex: "Support français 24/7" et non "Language_French" séparé).
+      Ne crée JAMAIS de type "Language".
+
+    - ⚠️ Les processus opérationnels (création de ticket, notification, gestion incidents)
+      doivent être intégrés comme description du CloudService ou du SLA.
+      Ne crée JAMAIS de type "Process", "Workflow" ou "Procedure".
+
+    - ⚠️ Les certificats et attestations (certificat de suppression, rapport d'audit)
+      sont des **SecurityFeature** ou des **Certification**.
+
+    # --- EXCLUSIONS (NE PAS extraire comme entités) ---
+    
+    - ⚠️ NE PAS extraire :
+      * Les flags CLI, variables d'environnement ou options de commande
+        ("--overwrite", "--remove", "AWS_REQUEST_CHECKSUM_CALCULATION")
+      * Les chemins de fichiers ou noms d'exemple ("./mon-site", "demo-app", "poc-helmfile")
+      * Les codes d'erreur isolés ("XAmzContentSHA256Mismatch")
+      * Les formats de données seuls ("JSON", "YAML", "XML")
+      * Les paramètres d'API seuls ("Parameter model", "Parameter messages")
+      * Les titres de sections ou guides ("Guide de démarrage rapide", "Tutoriel HA")
+      * Les mots isolés sans contexte ("Compute", "Storage", "Network", "Electricity", "Cooling")
+      * Les identifiants numériques isolés ("Group ID 16", "Priority 100", "Priority 200")
+      → Ces éléments doivent être IGNORÉS ou intégrés comme attributs d'autres entités.
+
+    # --- QUALITÉ ---
+    - Chaque entité doit avoir un NOM descriptif et auto-suffisant.
+      Mauvais: "P1", "I2", "FTG4". Bon: "Priorité P1 (GTI 30min)", "Impact I2 (Services dégradés)", "Licence FortiGate VM04V".
 
 # =============================================================================
 # Exemples d'extraction

@@ -236,6 +236,8 @@ class ExtractorService:
             if kt.lower() == type_lower:
                 return kt  # Casse exacte de l'ontologie
         
+        # LOG: capturer les types LLM rejetés pour analyse
+        print(f"⚠️ [Normalize] Type LLM rejeté: '{type_str}' → Other (known: {len(known_types)} types)", file=sys.stderr)
         return "Other"
     
     # Types de base (utilisés quand aucune ontologie n'est chargée)

@@ -6,7 +6,7 @@
 # réponses aux appels d'offres (RFP/RFI).
 
 name: presales
-version: "1.0"
+version: "1.1"
 description: |
   Ontologie spécialisée pour l'analyse de documents avant-vente et la génération
   de propositions commerciales pour services Cloud souverains (SecNumCloud).
@@ -110,12 +110,16 @@ entity_types:
       - "Loi Informatique et Libertés"
 
   - name: SecurityPolicy
-    description: Politique interne, procédure de sécurité ou mesure technique
+    description: Politique interne, procédure de sécurité, mesure technique ou mesure de sécurité physique
     examples:
       - "PSSI (Politique de Sécurité des SI)"
       - "Politique de chiffrement"
       - "Gestion des vulnérabilités"
       - "Principe de moindre privilège"
+      - "Destruction certifiée des supports"
+      - "Transport sécurisé des actifs"
+      - "Journaux d'accès physiques"
+      - "Campagnes de phishing simulé (SETA)"
 
   # ---------------------------------------------------------------------------
   # ⚙️ FAMILLE 3 : TECHNIQUE & INFRASTRUCTURE
@@ -129,13 +133,16 @@ entity_types:
       - "Orchestrateur Kubernetes"
 
   - name: Technology
-    description: Technologie, matériel ou logiciel spécifique utilisé
+    description: Technologie, matériel, logiciel ou modèle d'IA spécifique utilisé
     examples:
       - "IBM FlashSystem (Stockage)"
       - "Cisco UCS (Compute)"
       - "Fortinet (Sécurité)"
       - "Red Hat OpenShift"
       - "Veeam Backup"
+      - "Llama 3.3 70B (Modèle IA)"
+      - "Mistral Small (Modèle IA)"
+      - "DeepCoder (Modèle IA spécialisé code)"
 
   - name: Infrastructure
     description: Élément physique ou logique structurant de l'infrastructure
@@ -168,12 +175,15 @@ entity_types:
       - "Agile / Scrum"
 
   - name: Governance
-    description: Instance de pilotage, comité ou processus de gestion
+    description: Instance de pilotage, comité, processus de gestion ou fréquence de gouvernance
     examples:
       - "Comité de Pilotage (COPIL)"
       - "Comité Stratégique"
       - "Gestion des changements (CAB)"
       - "Revue de service mensuelle"
+      - "Comité hebdomadaire"
+      - "Revue trimestrielle"
+      - "Comité semestriel de pilotage"
 
   - name: ProjectPhase
     description: Étape d'un projet ou cycle de vie d'un service
@@ -255,11 +265,13 @@ entity_types:
   # 📊 FAMILLE 6 : CONTEXTE & INDICATEURS
   # ---------------------------------------------------------------------------
   - name: ClientReference
-    description: Référence client citée comme preuve ou exemple
+    description: Référence client citée comme preuve (inclut le nom, secteur, budget annuel et durée de relation si disponibles)
     examples:
-      - "Groupe Avril (Industrie)"
+      - "Groupe Avril (Industrie, 3M€/an)"
       - "Agence du Numérique en Santé (Public)"
-      - "Opérateur d'État (Confidentiel)"
+      - "CEA (10M€/an, depuis 15 ans)"
+      - "SUEZ (Infogérance, 3.8M€/an, 15 ans)"
+      - "CNRS (48 mois, Recherche)"
 
   - name: KPI
     description: Indicateur de performance, métrique chiffrée ou score
@@ -530,3 +542,32 @@ extraction_rules:
       Relation : Service → HAS_CERTIFICATION → Certification.
     
     - Pour les Références Clients, cherche le triplet : Nom Client + Secteur + Cas d'usage.
+      Intègre le budget annuel et la durée de relation dans le NOM de l'entité ClientReference
+      (ex: "SUEZ (3.8M€/an, 15 ans)" et non deux entités séparées "SUEZ" + "Budget 3.8M€").
+
+    - ⚠️ MAPPING OBLIGATOIRE : les types "MonetaryAmount" et "Duration" N'EXISTENT PAS dans cette ontologie.
+      Si tu veux extraire un montant (budget, prix, valeur contrat), intègre-le dans l'entité ClientReference
+      ou PricingModel associée. Si tu veux extraire une durée (contrat, projet, relation), intègre-la
+      dans le nom de l'entité ClientReference, ProjectPhase ou SLA correspondante.
+      Ne crée JAMAIS d'entité de type "MonetaryAmount", "Duration", "Amount" ou "Budget".
+    
+    - Les modèles d'IA (LLM, embeddings) sont des Technology : "Llama 3.3 70B" → Technology.
+    
+    - Les mesures de sécurité physique (destruction certifiée, transport sécurisé, contrôle d'accès)
+      sont des SecurityPolicy, PAS des "Other".
+    
+    - Les fréquences de comités (hebdomadaire, mensuelle, trimestrielle) doivent être
+      INTÉGRÉES dans le nom de l'entité Governance correspondante
+      (ex: "Revue mensuelle" et non une entité "Mensuelle" séparée).
+    
+    - ⚠️ NE PAS extraire comme entités :
+      * Les titres de sections de documents ("Introduction", "Présentation générale", "Organisation")
+      * Les mots isolés sans valeur métier ("Systèmes", "Stockage", "Middlewares")
+      * Les fréquences ou durées seules sans contexte ("Mensuelle", "Hebdomadaire", "Durée 2 mois")
+      → Ces éléments doivent être INTÉGRÉS comme attributs d'autres entités ou ignorés.
+    
+    - Les activités RACI (définition des besoins, validation, recette, fourniture)
+      sont des ProjectPhase, PAS des "Other".
+    
+    - Les processus opérationnels nommés (gestion des incidents, gestion des risques)
+      sont des Methodology, PAS des "Other".
