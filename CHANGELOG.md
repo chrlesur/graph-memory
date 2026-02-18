@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.3.2] - 2026-02-18
+
+### Refactoring — L'ontologie est la seule source de vérité pour les types d'entités
+
+- `extractor.py` : `_normalize_entity_type()` simplifiée de 50 lignes → 8 lignes.
+  Suppression du mapping hardcodé de 12 types "de base" et de l'acceptation libre
+  de tout type alphanumérique. La règle est désormais unique et stricte :
+  - Type retourné par le LLM **dans l'ontologie** → retourné avec la casse exacte de l'ontologie
+  - Type **hors ontologie** → `"Other"`, sans exception
+
+  Les 12 types de base (Person, Organization, Concept...) continuent de fonctionner
+  car ils sont définis dans chaque ontologie — c'est l'ontologie qui les déclare,
+  pas le code Python.
+
+---
+
 ## [1.3.1] - 2026-02-18
 
 ### Bugfix critique — Types d'entités dynamiques par ontologie

@@ -216,63 +216,27 @@ class ExtractorService:
     @staticmethod
     def _normalize_entity_type(type_str: str, known_types: Optional[set] = None) -> str:
         """
-        Convertit une string en type d'entité (string libre).
+        Normalise un type d'entité selon l'ontologie active.
         
-        Stratégie (par ordre de priorité) :
-        1. Mapping de compatibilité base (insensible à la casse) → valeur normalisée
-        2. Types connus de l'ontologie (insensible à la casse) → casse exacte de l'ontologie
-        3. Tout type au format alphanumérique valide → retourné tel quel
-        4. Fallback : "Other"
+        Règle unique : l'ontologie est la seule source de vérité.
+        - Si le type retourné par le LLM est dans l'ontologie → retourner avec la casse exacte de l'ontologie
+        - Sinon → "Other"
+        
+        Si aucune ontologie n'est chargée (known_types=None), tout est "Other".
         
         Args:
-            type_str: Type brut retourné par le LLM
-            known_types: Set de types d'entités de l'ontologie (ex: {"Differentiator", "KPI", ...})
+            type_str: Type brut retourné par le LLM (ex: "Differentiator", "KPI", "Person")
+            known_types: Set des types définis par l'ontologie (ex: {"Differentiator", "KPI", "Organization"})
         """
-        if not type_str:
+        if not type_str or not known_types:
             return "Other"
         
-        # Mapping de compatibilité (clés minuscules → valeur normalisée)
-        TYPE_MAP = {
-            "person": "Person",
-            "organization": "Organization",
-            "concept": "Concept",
-            "location": "Location",
-            "date": "Date",
-            "product": "Product",
-            "service": "Service",
-            "clause": "Clause",
-            "certification": "Certification",
-            "metric": "Metric",
-            "duration": "Duration",
-            "amount": "Amount",
-            "other": "Other",
-        }
-        
-        # 1. Chercher dans le mapping de base (insensible à la casse)
-        mapped = TYPE_MAP.get(type_str.lower())
-        if mapped:
-            return mapped
-        
-        # 2. Chercher dans les types connus de l'ontologie (insensible à la casse)
-        if known_types:
-            type_lower = type_str.lower()
-            for kt in known_types:
-                if kt.lower() == type_lower:
-                    return kt  # Retourner avec la casse exacte de l'ontologie
-        
-        # 3. Accepter tout type au format PascalCase/CamelCase/UPPER valide
-        # Ex: "Differentiator", "ClientReference", "KPI", "PresalesDomain", "SLA"
-        stripped = type_str.strip()
-        if stripped and stripped.replace("_", "").isalnum():
-            return stripped  # Retourner tel quel (format libre valide)
+        type_lower = type_str.strip().lower()
+        for kt in known_types:
+            if kt.lower() == type_lower:
+                return kt  # Casse exacte de l'ontologie
         
         return "Other"
-
-    # Alias de compatibilité (ne plus appeler _parse_entity_type directement)
-    @staticmethod
-    def _parse_entity_type(type_str: str) -> str:
-        """⚠️ Déprécié — utiliser _normalize_entity_type(type_str, known_types)."""
-        return ExtractorService._normalize_entity_type(type_str)
     
     # Types de base (utilisés quand aucune ontologie n'est chargée)
     BASE_RELATION_TYPES = {
