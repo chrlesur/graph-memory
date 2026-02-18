@@ -33,6 +33,22 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
 > Historique complet : voir [CHANGELOG.md](CHANGELOG.md)
 
+### v1.3.6 — 18 février 2026 — 🧠 Qualité ontologies + Ontologie general + CLI Répertoire
+- 📚 **Nouvelle ontologie `general` v1.0** — 24 entités / 22 relations, filet de sécurité universel pour FAQ, certifications, RSE, specs produits, knowledge bases
+- 🧠 **cloud.yaml v1.2** — +2 types (Role, SLALevel), 12 mappings obligatoires, 8 catégories d'exclusion → **0 "Other"** sur 4 documents test (vs 9-12 avant)
+- 📋 **presales.yaml v1.1** — mapping MonetaryAmount/Duration
+- 🧹 **Suppression `technical.yaml`** — Redondante avec `general` qui couvre un spectre plus large
+- 🖥️ **CLI `docs`** — Nouvelle colonne "Répertoire" affichant le dossier source de chaque fichier (partagée CLI Click / Shell)
+
+### v1.3.5 — 18 février 2026 — 🧠 system_about + Starter Kit
+- 🧠 **Nouvel outil `system_about`** — Carte d'identité complète du service (identité, capacités, mémoires, services, config)
+- 🧰 **Starter Kit développeur** — Guide + boilerplate pour ajouter un nouvel outil MCP
+- 🐛 **Robustification `client.py`** — Gestion `isError`, réponse vide, réponse non-JSON
+
+### v1.3.4 — 18 février 2026 — 📊 Progression ingestdir + Fix --exclude
+- 📊 **Progression temps réel par fichier** dans `ingestdir` (barres ASCII, compteurs, timer)
+- 🐛 **Fix parser `--exclude` dans le shell** — Réécriture avec `shlex.split()` (3 bugs corrigés)
+
 ### v1.3.3 — 18 février 2026 — ☁️ Ontologie cloud.yaml v1.1
 - ☁️ **Ontologie cloud v1.1** — +4 entités (PricingModel, StorageClass, BackupSolution, AIModel) + 5 relations (COMPATIBLE_WITH, SUPPORTS, PART_OF, DEPENDS_ON, HAS_PRICING). 24 entités / 19 relations au total.
 - ✅ **Validé sur 2 fiches produits** — 73 entités extraites, 97.3% correctement typées (2 "Other" sur 73)
@@ -504,10 +520,10 @@ Les ontologies définissent les **types d'entités** et **types de relations** q
 | Ontologie          | Fichier                            | Entités  | Relations | Usage                                            |
 | ------------------ | ---------------------------------- | -------- | --------- | ------------------------------------------------ |
 | `legal`            | `ONTOLOGIES/legal.yaml`            | 22 types | 22 types  | Documents juridiques, contrats                   |
-| `cloud`            | `ONTOLOGIES/cloud.yaml`            | 24 types | 19 types  | Infrastructure cloud, fiches produits, docs techniques |
+| `cloud`            | `ONTOLOGIES/cloud.yaml`            | 27 types | 19 types  | Infrastructure cloud, fiches produits, docs techniques |
 | `managed-services` | `ONTOLOGIES/managed-services.yaml` | 20 types | 16 types  | Services managés, infogérance                    |
-| `technical`        | `ONTOLOGIES/technical.yaml`        | 27 types | 16 types  | Documentation technique, API                     |
 | `presales`         | `ONTOLOGIES/presales.yaml`         | 28 types | 30 types  | Avant-vente, RFP/RFI, propositions commerciales  |
+| `general`          | `ONTOLOGIES/general.yaml`          | 24 types | 22 types  | Générique : FAQ, référentiels, certifications, RSE, specs produits |
 
 > Toutes les ontologies utilisent les limites d'extraction `max_entities: 60` / `max_relations: 80`.
 
@@ -738,10 +754,10 @@ graph-memory/
 │
 ├── ONTOLOGIES/               # Ontologies d'extraction
 │   ├── legal.yaml            # Documents juridiques (22 entités, 22 relations)
-│   ├── cloud.yaml            # Infrastructure cloud (24 entités, 19 relations) [v1.1]
+│   ├── cloud.yaml            # Infrastructure cloud (27 entités, 19 relations) [v1.2]
 │   ├── managed-services.yaml # Services managés (20 entités, 16 relations)
-│   ├── technical.yaml        # Documentation technique (27 entités, 16 relations)
-│   └── presales.yaml         # Avant-vente / RFP (28 entités, 30 relations) [v1.3.0]
+│   ├── presales.yaml         # Avant-vente / RFP (28 entités, 30 relations) [v1.3.0]
+│   └── general.yaml          # Générique : FAQ, certif, RSE, specs (24 entités, 22 relations) [v1.3.6]
 │
 ├── scripts/                  # CLI et utilitaires
 │   ├── mcp_cli.py            # Point d'entrée CLI (Click + Shell)
@@ -853,4 +869,4 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
 ---
 
-*Graph Memory v1.3.3 — Février 2026*
+*Graph Memory v1.3.6 — Février 2026*

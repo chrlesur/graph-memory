@@ -471,4 +471,4 @@ pip install httpx httpx-sse click rich prompt_toolkit
 
 ---
 
-*Graph Memory CLI v1.3.5 — Février 2026*
+*Graph Memory CLI v1.3.6 — Février 2026*

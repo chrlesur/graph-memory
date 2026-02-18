@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.3.6] - 2026-02-18
+
+### 🧠 Qualité ontologies — Réduction "Other" à 0%
+
+- **cloud.yaml v1.2** : +2 types (`Role`, `SLALevel`), 12 mappings obligatoires (Endpoint→API, Licence→PricingModel, HA→Technology, etc.), 8 catégories d'exclusion (CLI flags, variables, erreurs, paramètres)
+- **presales.yaml v1.1** : mapping MonetaryAmount/Duration vers ClientReference/PricingModel
+- **extractor.py** : logging des types LLM rejetés vers `Other` (aide au diagnostic ontologie)
+- **Tests** : 4/4 documents ré-ingérés = 0 "Other" (vs 9-12 avant)
+
+### 📚 Nouvelle ontologie `general` (v1.0)
+
+- **`ONTOLOGIES/general.yaml`** : ontologie universelle pour tout document ne rentrant pas dans les ontologies spécialisées (legal, cloud, presales, technical, managed-services)
+- **24 types d'entités** en 5 familles : Connaissance (Topic, Question, Answer, Definition, Fact), Organisations (Organization, Person, ClientReference, Partner), Produits & Tech (Product, ProductModel, Technology, Specification, PricingInfo), Conformité (Certification, Regulation, Requirement, SLA), Indicateurs (KPI, Target, Action, Evidence)
+- **22 types de relations** en 5 familles : Connaissance (ANSWERS, COVERS, DEFINES, PROVEN_BY), Capacité (PROVIDES, HAS_CERTIFICATION, COMPLIANT_WITH, HAS_SLA, REQUIRES), Technique (USES_TECHNOLOGY, HAS_MODEL, HAS_SPEC, PRICED_AT, INTEGRATES_WITH), Références (DEPLOYED_FOR, PARTNERED_WITH), Stratégie (MEASURED_BY, TARGETS, ADDRESSES), Structure (PART_OF, RELATED_TO, SUPERSEDES)
+- Optimisée pour FAQ/Q&A, référentiels normatifs, certifications, bilans RSE, specs produits, knowledge bases
+- Mappings stricts anti-"Other" (MonetaryAmount→PricingInfo, Duration→intégré, Date→intégré, Section→ignoré)
+
+### 🧹 Suppression de l'ontologie `technical`
+
+- **`ONTOLOGIES/technical.yaml` supprimée** — Redondante avec l'ontologie `general` qui couvre un spectre plus large (FAQ, documentation technique, certifications, specs produits)
+
+### 🖥️ CLI — Colonne Répertoire
+
+- **`docs` / `document list`** : nouvelle colonne "Répertoire" (bleu) affichant le dossier source de chaque fichier (extrait de `source_path`)
+- Fonction partagée `show_documents_table()` : identique en CLI Click et Shell interactif
+
 ## [1.3.5] - 2026-02-18
 
 ### 🧠 Outil system_about + Starter Kit développeur + Robustification client.py

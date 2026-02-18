@@ -56,6 +56,7 @@ def show_memories_table(memories: List[dict], current_memory: str = None):
 
 def show_documents_table(docs: List[dict], memory_id: str):
     """Affiche la liste des documents dans un tableau."""
+    import os
     if not docs:
         console.print(f"[yellow]Aucun document dans '{memory_id}'.[/yellow]")
         return
@@ -64,15 +65,22 @@ def show_documents_table(docs: List[dict], memory_id: str):
     table.add_column("#", style="dim", width=3)
     table.add_column("ID", style="cyan", no_wrap=True)
     table.add_column("Fichier", style="white")
+    table.add_column("Répertoire", style="blue")
     table.add_column("Ingéré le", style="green", width=12)
 
     for i, d in enumerate(docs, 1):
         doc_id = d.get("id", "")
         ingested = d.get("ingested_at", "")[:10] if d.get("ingested_at") else "-"
+        # Extraire le répertoire depuis source_path
+        source_path = d.get("source_path", "")
+        directory = os.path.dirname(source_path) if source_path else "-"
+        if not directory:
+            directory = "."
         table.add_row(
             str(i),
             doc_id,
             d.get("filename", ""),
+            directory,
             ingested,
         )
 
