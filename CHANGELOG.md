@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.3.5] - 2026-02-18
+
+### 🧠 Outil system_about + Starter Kit développeur + Robustification client.py
+
+**Nouvel outil MCP `system_about`** — Carte d'identité complète du service, accessible sans authentification :
+- Identité : nom, version, description, objectif, approche Graph-First, repo GitHub
+- Capacités : 28 outils répartis en 8 catégories, 5 ontologies, 6 formats supportés
+- Mémoires actives : ID, nom, ontologie, compteurs docs/entités/relations
+- Services : état de chaque backend (Neo4j, S3, Qdrant, LLMaaS, Embedding)
+- Configuration : modèle LLM, embedding, seuil RAG, taille chunks, rétention backups
+
+**CLI enrichie** :
+- Nouvelle commande `about` dans la CLI Click (`python scripts/mcp_cli.py about`)
+- Nouvelle commande `about` dans le shell interactif
+- Affichage Rich complet : 5 panels (identité, services, capacités, mémoires, configuration)
+- `show_about()` dans `display.py` (fonction partagée Click/Shell)
+
+**Starter Kit développeur** (`starter-kit/`) :
+- Guide complet `README.md` : processus en 4 étapes pour ajouter un nouvel outil MCP
+- Boilerplate fonctionnel dans `starter-kit/boilerplate/` (Docker, WAF, CLI, auth)
+- `system_about` sert d'exemple réel pour le guide (4 fichiers modifiés documentés)
+
+**Robustification `client.py`** :
+- `call_tool()` gère maintenant `isError=True` du protocole MCP (au lieu de crash `json.loads`)
+- Gestion réponse vide (`content` absent ou vide)
+- Gestion réponse non-JSON (texte brut du serveur)
+- Messages d'erreur exploitables au lieu d'exceptions cryptiques
+
+**Fichiers ajoutés** : `starter-kit/README.md`, `starter-kit/boilerplate/` (13 fichiers)
+**Fichiers modifiés** : `src/mcp_memory/server.py`, `scripts/cli/commands.py`, `scripts/cli/shell.py`, `scripts/cli/display.py`, `scripts/cli/client.py`, `VERSION`, `src/mcp_memory/__init__.py`
+
+---
+
 ## [1.3.4] - 2026-02-18
 
 ### CLI — Progression temps réel pour ingestdir + Fix parsing --exclude

@@ -65,7 +65,7 @@ from .ingest_progress import run_ingest_with_progress
 
 # Liste des commandes du shell
 SHELL_COMMANDS = [
-    "help", "health", "list", "use", "info", "graph", "docs",
+    "help", "about", "health", "list", "use", "info", "graph", "docs",
     "entities", "entity", "relations", "ask", "query", "check", "cleanup",
     "create", "ingest", "ingestdir", "deldoc", "ontologies",
     "tokens", "token-create", "token-revoke", "token-grant",
@@ -412,6 +412,16 @@ async def cmd_cleanup(client: MCPClient, state: dict, force: bool = False):
     console.print("[dim]🧹 Analyse des orphelins S3...[/dim]")
     result = await client.call_tool("storage_cleanup", {"dry_run": not force})
     show_cleanup_result(result)
+
+
+async def cmd_about(client: MCPClient, state: dict):
+    """Affiche l'identité et les capacités du service MCP Memory."""
+    from .display import show_about
+    result = await client.call_tool("system_about", {})
+    if result.get("status") == "ok":
+        show_about(result)
+    else:
+        show_error(result.get("message", "Erreur"))
 
 
 async def cmd_health(client: MCPClient, state: dict):
@@ -1150,6 +1160,7 @@ def run_shell(url: str, token: str):
     # Table d'aide (organisée par catégorie)
     HELP = {
         # --- Serveur ---
+        "about":        "Identité et capacités du service MCP Memory",
         "health":       "État du serveur (URL, nb mémoires)",
         # --- Mémoires ---
         "list":         "Lister les mémoires",
@@ -1301,6 +1312,9 @@ def run_shell(url: str, token: str):
 
             elif command == "delete":
                 asyncio.run(cmd_delete(client, state, args))
+
+            elif command == "about":
+                asyncio.run(cmd_about(client, state))
 
             elif command == "health":
                 asyncio.run(cmd_health(client, state))

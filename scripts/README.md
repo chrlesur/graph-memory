@@ -88,6 +88,9 @@ Point d'entrée : `python scripts/mcp_cli.py [COMMANDE] [OPTIONS]`
 ### Serveur
 
 ```bash
+# Identité et capacités du service (28 outils, 5 ontologies, services, mémoires)
+python scripts/mcp_cli.py about
+
 # État du serveur
 python scripts/mcp_cli.py health
 ```
@@ -289,6 +292,7 @@ Fonctionnalités :
 
 | Commande             | Description                   |
 | -------------------- | ----------------------------- |
+| `about`              | Identité et capacités du service |
 | `health`             | État du serveur               |
 | `list`               | Lister les mémoires           |
 | `use <id>`           | Sélectionner une mémoire      |
@@ -467,4 +471,4 @@ pip install httpx httpx-sse click rich prompt_toolkit
 
 ---
 
-*Graph Memory CLI v1.3.4 — Février 2026*
+*Graph Memory CLI v1.3.5 — Février 2026*

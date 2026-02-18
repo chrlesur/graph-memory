@@ -75,6 +75,24 @@ def cli(ctx, url, token):
 
 @cli.command()
 @click.pass_context
+def about(ctx):
+    """🧠 Identité et capacités du service MCP Memory."""
+    async def _run():
+        try:
+            client = MCPClient(ctx.obj["url"], ctx.obj["token"])
+            result = await client.call_tool("system_about", {})
+            if result.get("status") == "ok":
+                from .display import show_about
+                show_about(result)
+            else:
+                show_error(result.get("message", "Erreur"))
+        except Exception as e:
+            show_error(str(e))
+    asyncio.run(_run())
+
+
+@cli.command()
+@click.pass_context
 def health(ctx):
     """🏥 Vérifier l'état du serveur MCP."""
     async def _run():

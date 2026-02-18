@@ -1827,6 +1827,130 @@ async def storage_cleanup(dry_run: bool = True) -> dict:
 
 
 @mcp.tool()
+async def system_about() -> dict:
+    """
+    Identité et rôle du service MCP Memory.
+    
+    Retourne une description complète du service :
+    - Qui il est et pourquoi il existe
+    - Ses capacités (outils disponibles, ontologies)
+    - Les mémoires actives
+    - Les services connectés et leur état
+    
+    Cet outil ne nécessite aucune authentification.
+    Idéal pour découvrir le service ou vérifier sa configuration.
+    
+    Returns:
+        Identité, capacités, mémoires actives, état des services
+    """
+    try:
+        # Version depuis le fichier VERSION
+        version = "?"
+        try:
+            version_path = os.path.join(os.path.dirname(__file__), "..", "..", "VERSION")
+            if os.path.exists(version_path):
+                with open(version_path) as f:
+                    version = f.read().strip()
+        except Exception:
+            pass
+        
+        # Ontologies disponibles
+        ontologies_info = []
+        try:
+            from .core.ontology import get_ontology_manager
+            ontology_manager = get_ontology_manager()
+            ontologies_info = ontology_manager.list_ontologies()
+        except Exception:
+            pass
+        
+        # Mémoires actives
+        memories_info = []
+        try:
+            memories = await get_graph().list_memories()
+            for m in memories:
+                stats = await get_graph().get_memory_stats(m.id)
+                memories_info.append({
+                    "id": m.id,
+                    "name": m.name,
+                    "ontology": m.ontology,
+                    "documents": stats.document_count,
+                    "entities": stats.entity_count,
+                    "relations": stats.relation_count,
+                })
+        except Exception:
+            pass
+        
+        # État des services
+        services_status = {}
+        for name, test_fn in [
+            ("neo4j", lambda: get_graph().test_connection()),
+            ("s3", lambda: get_storage().test_connection()),
+            ("qdrant", lambda: get_vector_store().test_connection()),
+            ("llmaas", lambda: get_extractor().test_connection()),
+            ("embedding", lambda: get_embedder().test_connection()),
+        ]:
+            try:
+                result = await test_fn()
+                services_status[name] = result.get("status", "unknown")
+            except Exception:
+                services_status[name] = "error"
+        
+        # Outils MCP disponibles (comptage par catégorie)
+        tools_categories = {
+            "Gestion mémoires": ["memory_create", "memory_delete", "memory_list", "memory_stats"],
+            "Ingestion": ["memory_ingest"],
+            "Recherche & Q&A": ["memory_search", "memory_query", "memory_get_context", "question_answer"],
+            "Documents": ["document_list", "document_get", "document_delete"],
+            "Backup/Restore": ["backup_create", "backup_list", "backup_restore", "backup_download", "backup_delete", "backup_restore_archive"],
+            "Administration": ["admin_create_token", "admin_list_tokens", "admin_revoke_token", "admin_update_token"],
+            "Diagnostic": ["system_health", "system_about", "storage_check", "storage_cleanup"],
+            "Visualisation": ["memory_graph", "ontology_list"],
+        }
+        total_tools = sum(len(v) for v in tools_categories.values())
+        
+        return {
+            "status": "ok",
+            "identity": {
+                "name": settings.mcp_server_name,
+                "version": version,
+                "description": "Service de mémoire à long terme pour agents IA, "
+                               "basé sur un Knowledge Graph (Neo4j) complété par "
+                               "un RAG vectoriel (Qdrant).",
+                "purpose": "Extraire, stocker et rechercher des connaissances "
+                           "structurées (entités, relations) à partir de documents, "
+                           "avec isolation multi-tenant par namespace.",
+                "approach": "Graph-First : le Knowledge Graph est la source principale. "
+                            "Le RAG vectoriel intervient en complément (Graph-Guided RAG) "
+                            "pour enrichir les réponses avec des extraits textuels précis.",
+                "provider": "Cloud Temple",
+                "repo": "https://github.com/chrlesur/graph-memory.git",
+            },
+            "capabilities": {
+                "total_tools": total_tools,
+                "categories": {k: len(v) for k, v in tools_categories.items()},
+                "tools_list": tools_categories,
+                "ontologies": [
+                    {"name": o.get("name", "?"), "description": o.get("description", "")}
+                    for o in ontologies_info
+                ],
+                "supported_formats": ["txt", "md", "html", "docx", "pdf", "csv"],
+            },
+            "memories": memories_info,
+            "services": services_status,
+            "configuration": {
+                "llm_model": settings.llmaas_model,
+                "embedding_model": settings.llmaas_embedding_model,
+                "embedding_dimensions": settings.llmaas_embedding_dimensions,
+                "rag_score_threshold": settings.rag_score_threshold,
+                "chunk_size": settings.chunk_size,
+                "backup_retention": settings.backup_retention_count,
+            },
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@mcp.tool()
 async def system_health() -> dict:
     """
     Vérifie l'état de santé du système.
@@ -2184,7 +2308,7 @@ def main():
     print("  - memory_create, memory_delete, memory_list, memory_stats", file=sys.stderr)
     print("  - memory_ingest, memory_search, memory_query, memory_get_context", file=sys.stderr)
     print("  - admin_create_token, admin_list_tokens, admin_revoke_token, admin_update_token", file=sys.stderr)
-    print("  - storage_check, storage_cleanup, system_health", file=sys.stderr)
+    print("  - storage_check, storage_cleanup, system_health, system_about", file=sys.stderr)
     print("  - backup_create, backup_list, backup_restore, backup_download, backup_delete", file=sys.stderr)
     print("=" * 70, file=sys.stderr)
     

@@ -134,7 +134,24 @@ class MCPClient:
                             session._received_notification = _patched_received_notification
                         
                         result = await session.call_tool(tool_name, args)
-                        return json.loads(result.content[0].text)
+                        # --- Parsing robuste de la réponse MCP ---
+                        # Vérifier si le serveur a renvoyé une erreur
+                        if getattr(result, 'isError', False):
+                            error_msg = "Erreur serveur MCP"
+                            if result.content:
+                                error_msg = getattr(result.content[0], 'text', '') or error_msg
+                            return {"status": "error", "message": error_msg}
+                        # Extraire le texte du premier bloc de contenu
+                        text = ""
+                        if result.content:
+                            text = getattr(result.content[0], 'text', '') or ""
+                        if not text:
+                            return {"status": "error", "message": "Réponse vide du serveur"}
+                        # Parser le JSON (avec fallback texte brut)
+                        try:
+                            return json.loads(text)
+                        except json.JSONDecodeError:
+                            return {"status": "error", "message": f"Réponse non-JSON: {text[:500]}"}
             except ConnectionRefusedError:
                 raise ServerNotRunningError(self.base_url)
             except OSError as e:

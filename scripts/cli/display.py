@@ -860,6 +860,91 @@ def show_restore_result(result: dict):
     ))
 
 
+def show_about(result: dict):
+    """Affiche les informations du service MCP Memory (system_about)."""
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.columns import Columns
+    
+    console = Console()
+    
+    identity = result.get("identity", {})
+    capabilities = result.get("capabilities", {})
+    memories = result.get("memories", [])
+    services = result.get("services", {})
+    config = result.get("configuration", {})
+    
+    # === Identité ===
+    id_text = (
+        f"[bold cyan]{identity.get('name', '?')}[/bold cyan] "
+        f"v{identity.get('version', '?')} — {identity.get('provider', '?')}\n\n"
+        f"[bold]Description[/bold]\n{identity.get('description', '')}\n\n"
+        f"[bold]Objectif[/bold]\n{identity.get('purpose', '')}\n\n"
+        f"[bold]Approche[/bold]\n{identity.get('approach', '')}\n\n"
+        f"[dim]Repo: {identity.get('repo', '')}[/dim]"
+    )
+    console.print(Panel(id_text, title="🧠 Qui suis-je ?", border_style="cyan"))
+    
+    # === Services ===
+    svc_parts = []
+    for name, status in services.items():
+        icon = "✅" if status == "ok" else "❌"
+        svc_parts.append(f"{icon} {name}")
+    console.print(Panel("  ".join(svc_parts), title="🔌 Services", border_style="green" if all(s == "ok" for s in services.values()) else "red"))
+    
+    # === Capacités ===
+    cats = capabilities.get("categories", {})
+    tools_total = capabilities.get("total_tools", 0)
+    cat_parts = [f"[bold]{k}[/bold]: {v}" for k, v in cats.items()]
+    formats = ", ".join(capabilities.get("supported_formats", []))
+    
+    onto_parts = []
+    for o in capabilities.get("ontologies", []):
+        onto_parts.append(f"• {o.get('name', '?')}: {o.get('description', '')[:60]}")
+    
+    cap_text = (
+        f"[bold]{tools_total} outils MCP[/bold] répartis en {len(cats)} catégories :\n"
+        + "  " + " | ".join(cat_parts) + "\n\n"
+        f"[bold]Formats supportés[/bold] : {formats}\n\n"
+        f"[bold]Ontologies ({len(onto_parts)})[/bold] :\n" + "\n".join(onto_parts)
+    )
+    console.print(Panel(cap_text, title="⚡ Capacités", border_style="yellow"))
+    
+    # === Mémoires actives ===
+    if memories:
+        table = Table(title=f"📚 Mémoires actives ({len(memories)})", show_lines=False)
+        table.add_column("ID", style="bold cyan")
+        table.add_column("Nom", style="white")
+        table.add_column("Ontologie", style="yellow")
+        table.add_column("Docs", style="green", justify="right")
+        table.add_column("Entités", style="green", justify="right")
+        table.add_column("Relations", style="green", justify="right")
+        
+        for m in memories:
+            table.add_row(
+                m.get("id", "?"),
+                m.get("name", "?"),
+                m.get("ontology", "?"),
+                str(m.get("documents", 0)),
+                str(m.get("entities", 0)),
+                str(m.get("relations", 0)),
+            )
+        console.print(table)
+    else:
+        console.print("[dim]Aucune mémoire active.[/dim]")
+    
+    # === Configuration ===
+    cfg_parts = [
+        f"LLM: [bold]{config.get('llm_model', '?')}[/bold]",
+        f"Embedding: [bold]{config.get('embedding_model', '?')}[/bold] ({config.get('embedding_dimensions', '?')}d)",
+        f"RAG seuil: {config.get('rag_score_threshold', '?')}",
+        f"Chunk: {config.get('chunk_size', '?')} tokens",
+        f"Backup rétention: {config.get('backup_retention', '?')}",
+    ]
+    console.print(Panel("  |  ".join(cfg_parts), title="⚙️ Configuration", border_style="dim"))
+
+
 def show_answer(answer: str, entities: list = None, source_documents: list = None):
     """Affiche une réponse Q&A avec les documents sources."""
     console.print(Panel.fit(
