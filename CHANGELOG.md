@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.3.7] - 2026-02-19
+
+### 🧠 Ontologie `general.yaml` v1.0 → v1.1 — Réduction "Other" pour REFERENTIEL
+
+**Problème** : La mémoire REFERENTIEL (2727 entités, 20 documents) contenait **299 entités "Other" (11%)**, principalement issues des textes réglementaires NIS2 (107), rapport NEURONES (90), DORA (67), PAMS ANSSI (20).
+
+**Analyse** : Script `analyze_entities.py` + `analyze_others.py` + script REST ad hoc pour catégoriser les 299 "Other" en 14 patterns : articles de loi (~120), secteurs réglementés (~30), stakeholders RSE (~20), sanctions (~15), deadlines/durées (~20), résolutions AG (~15), impacts RSE (~12), rapports (~8), zones sécurité PAMS (~14), qualifications ANSSI (~4), etc.
+
+**Corrections ontologie `general.yaml` v1.0 → v1.1** :
+- **+4 types d'entités** : `LegalProvision` (articles de loi, considérants, annexes), `Sector` (secteurs/sous-secteurs NIS2, DORA, NACE), `Sanction` (amendes, astreintes, suspensions), `Stakeholder` (parties prenantes RSE/matérialité)
+- **+2 types de relations** : `APPLIES_TO` (réglementation→secteur), `IMPOSES` (provision→sanction)
+- **~50 lignes de `special_instructions`** additionnelles : règles pour textes réglementaires (articles→LegalProvision, secteurs→Sector, sanctions→Sanction), règles RSE (stakeholders, impacts→KPI, résolutions AG→Action), 15 mappings obligatoires supplémentaires (qualifications ANSSI→Certification, rapports→Evidence, zones sécurité→Topic, comités→Organization, réunions→Action, rôles non nommés→ignorer, acronymes→Definition, deadlines/durées/fréquences/limites financières→intégrés dans entité parent, status→ignorer)
+- **+1 exemple d'extraction** réglementaire (Article NIS2 + sanctions + secteurs)
+- **`priority_entities`** enrichi : +LegalProvision, +Sanction
+- Total : 28 types d'entités (vs 24), 24 types de relations (vs 22)
+
+**Action requise** : Redéployer en production puis ré-ingérer les 7 documents problématiques (NIS2, DORA, NEURONES, PAMS, SecNumCloud, HDS, DiagCarbone) avec `--force`.
+
 ## [1.3.6] - 2026-02-18
 
 ### 🧠 Qualité ontologies — Réduction "Other" à 0%

@@ -7,7 +7,7 @@
 # knowledge bases, RFI/RFP, indicateurs, références clients.
 
 name: general
-version: "1.0"
+version: "1.1"
 description: |
   Ontologie générique pour l'extraction d'informations depuis tout type de document
   professionnel : FAQ, référentiels normatifs, fiches produits partenaires,
@@ -46,7 +46,7 @@ context: |
      "Couverture: Intégralement/Partiellement", intègre ces infos dans l'Answer.
 
 # =============================================================================
-# TYPES D'ENTITÉS (24 types, 5 familles)
+# TYPES D'ENTITÉS (28 types, 5 familles)
 # =============================================================================
 entity_types:
 
@@ -127,6 +127,15 @@ entity_types:
       - "CyberSec Partners (CERT qualifié ANSSI)"
       - "DefenseTech (partenariat défense/santé)"
       - "AuditConseil (conformité HDS)"
+
+  - name: Stakeholder
+    description: Partie prenante identifiée dans une analyse de matérialité, un bilan RSE ou une cartographie des acteurs
+    examples:
+      - "Stakeholder – Collaborateurs (Salariés, 2024)"
+      - "Stakeholder – Clients utilisateurs produits (Clients, 2024)"
+      - "Stakeholder – Hébergeurs (Infrastructure, 2024)"
+      - "Stakeholder – Communautés (Société civile, 2024)"
+      - "Stakeholder – Nature (Environnement, 2024)"
 
   # ---------------------------------------------------------------------------
   # ⚙️ FAMILLE 3 : PRODUITS & TECHNOLOGIE
@@ -218,6 +227,34 @@ entity_types:
       - "GTR 4 heures"
       - "Support 24/7 en option"
 
+  - name: LegalProvision
+    description: Article de loi, considérant, disposition, amendement ou annexe d'un texte réglementaire
+    priority: high
+    examples:
+      - "Article 21 – Mesures de gestion des risques cybersécurité (NIS2)"
+      - "Article 17 – Processus de gestion des incidents TIC (DORA)"
+      - "Article 32 – Mesures de supervision des entités essentielles"
+      - "Considérant 45 – Principe de proportionnalité"
+      - "Annexe I – Secteurs hautement critiques (NIS2)"
+
+  - name: Sector
+    description: Secteur ou sous-secteur d'activité réglementé (annexes NIS2, DORA, NACE)
+    examples:
+      - "Secteur Énergie (critique, Annexe I NIS2)"
+      - "Subsecteur Électricité (gestionnaires de réseaux, producteurs)"
+      - "Secteur Infrastructure numérique (DNS, registres, IXP)"
+      - "Secteur Bancaire (établissements de crédit)"
+      - "Secteur fabrication de dispositifs médicaux (NACE)"
+
+  - name: Sanction
+    description: Sanction administrative, amende, astreinte, mesure d'exécution ou pénalité réglementaire
+    examples:
+      - "Amende administrative – Min 10M€ ou 2% CA mondial (entités essentielles NIS2)"
+      - "Amende administrative – Min 7M€ ou 1.4% CA mondial (entités importantes NIS2)"
+      - "Astreinte – Max 1% CA quotidien mondial pendant 6 mois (DORA)"
+      - "Suspension temporaire d'une certification ou autorisation"
+      - "Interdiction temporaire d'exercice de fonctions de direction"
+
   # ---------------------------------------------------------------------------
   # 📊 FAMILLE 5 : INDICATEURS & STRATÉGIE
   # ---------------------------------------------------------------------------
@@ -259,7 +296,7 @@ entity_types:
       - "Attestation ISAE 3402 Type II (Guibert & Co)"
 
 # =============================================================================
-# TYPES DE RELATIONS (22 types, 5 familles)
+# TYPES DE RELATIONS (24 types, 6 familles)
 # =============================================================================
 relation_types:
 
@@ -398,6 +435,21 @@ relation_types:
     examples:
       - "SecNumCloud v3.2 → SUPERSEDES → SecNumCloud v3.1"
 
+  # ---------------------------------------------------------------------------
+  # RÉGLEMENTAIRE
+  # ---------------------------------------------------------------------------
+  - name: APPLIES_TO
+    description: Un texte réglementaire ou une disposition s'applique à un secteur ou une catégorie d'entités
+    examples:
+      - "NIS2 → APPLIES_TO → Secteur Infrastructure numérique"
+      - "DORA → APPLIES_TO → Entité financière"
+
+  - name: IMPOSES
+    description: Une réglementation ou autorité impose une sanction ou une obligation
+    examples:
+      - "NIS2 Article 34 → IMPOSES → Amende administrative 10M€"
+      - "DORA Article 35 → IMPOSES → Astreinte 1% CA quotidien"
+
 # =============================================================================
 # RÈGLES D'EXTRACTION
 # =============================================================================
@@ -414,6 +466,8 @@ extraction_rules:
     - ClientReference
     - KPI
     - SLA
+    - LegalProvision
+    - Sanction
 
   special_instructions: |
     # --- RÈGLES POUR LES FAQ / Q&A ---
@@ -480,6 +534,70 @@ extraction_rules:
       * Les paramètres CLI ou variables d'environnement
       → Ces éléments doivent être IGNORÉS ou intégrés comme attributs.
 
+    # --- RÈGLES POUR LES TEXTES RÉGLEMENTAIRES (NIS2, DORA, SecNumCloud, HDS, PAMS) ---
+    - Chaque article numéroté d'un texte de loi/directive/règlement = LegalProvision.
+      Inclure le numéro ET le titre dans le nom.
+      ✅ "Article 21 – Mesures de gestion des risques cybersécurité (NIS2)"
+      ❌ "Article 21" seul
+    - Les considérants (Recital) = LegalProvision aussi.
+    - Les annexes numérotées = LegalProvision ("Annexe I – Secteurs hautement critiques").
+    - Les secteurs et sous-secteurs des annexes réglementaires = Sector.
+      ✅ "Secteur Énergie (critique, Annexe I NIS2)"
+      ❌ "Énergie" seul
+    - Les sanctions (amendes, astreintes, suspensions, interdictions) = Sanction.
+      Inclure TOUJOURS le montant/seuil si disponible.
+      ✅ "Amende administrative – Min 10M€ ou 2% CA mondial (entités essentielles NIS2)"
+      ❌ "Amende administrative" seul
+
+    # --- RÈGLES POUR LES RAPPORTS RSE / MATÉRIALITÉ ---
+    - Les parties prenantes des analyses de matérialité = Stakeholder.
+      ✅ "Stakeholder – Hébergeurs (Infrastructure, 2024)"
+      ❌ "Hébergeurs" seul
+    - Les impacts, risques et opportunités RSE = KPI (inclure nature +/-, horizon).
+    - Les résolutions d'assemblée générale = Action.
+    - Les plans d'actions gratuites / rachats d'actions = Action.
+
+    # --- MAPPINGS OBLIGATOIRES ADDITIONNELS (anti-"Other") ---
+
+    - ⚠️ Les qualifications ANSSI (PAMS, PASSI, PDIS, PRIS, SecNumCloud) = Certification.
+      Ne crée JAMAIS de type "Qualification" ou "Acronym".
+
+    - ⚠️ Les rapports officiels (ENISA, CSIRT, EU-CyCLONe, bilans RSE) = Evidence.
+      Ne crée JAMAIS de type "Report" ou "Publication".
+
+    - ⚠️ Les zones de sécurité (zone de confiance, zone d'interconnexion) = Topic.
+      Ne crée JAMAIS de type "Zone", "SecurityZone" ou "Component".
+
+    - ⚠️ Les comités (comité d'audit, comité éthique, comité de groupe) = Organization.
+      Ne crée JAMAIS de type "Committee".
+
+    - ⚠️ Les réunions du conseil, assemblées générales = Action.
+      Ne crée JAMAIS de type "Meeting", "Event" ou "Session".
+
+    - ⚠️ Les rôles (RSSI, DPO) = Person uniquement si NOMMÉE, sinon IGNORER.
+      Ne crée JAMAIS de type "Role" ou "JobTitle".
+
+    - ⚠️ Les acronymes seuls (DSCP, SMSI) = Definition.
+      Ne crée JAMAIS de type "Acronym".
+
+    - ⚠️ Les guides et référentiels ANSSI (GUIDE_ACHAT, NT_ADMIN) = Evidence.
+
+    - ⚠️ Les deadlines isolées doivent être INTÉGRÉES dans LegalProvision ou Requirement.
+      ✅ "Article 41 – Transposition (deadline 17/10/2024)"
+      ❌ "Deadline 17 octobre 2024" comme entité séparée
+
+    - ⚠️ Les durées isolées (5 ans, 26 mois) = INTÉGRÉES dans l'entité parente.
+      ❌ "Duration 5 years" comme entité séparée
+
+    - ⚠️ Les fréquences (trimestriel, semestriel) = INTÉGRÉES dans Evidence.
+      ✅ "Rapport de synthèse ENISA (trimestriel)"
+      ❌ "Fréquence trimestrielle" comme entité séparée
+
+    - ⚠️ Les limites financières (plafonds, décotes, seuils) = INTÉGRÉES dans Action.
+      ❌ "Capacité maximale d'émission 9M€" comme entité séparée
+
+    - ⚠️ Les status ("Non utilisée", "En cours") ne sont PAS des entités. IGNORER.
+
     # --- QUALITÉ DES NOMS ---
     - Chaque entité doit avoir un nom descriptif et auto-suffisant.
       ✅ "FortiGate FG-900G (164 Gbps FW, 16M sessions)"
@@ -536,3 +654,19 @@ examples:
       - {name: "−41% émissions relatives d'ici 2030", type: "Target"}
     expected_relations:
       - {from: "Émissions GES 2133 tCO2e", to: "−41% émissions relatives 2030", type: "TARGETS"}
+
+  - context: "Article NIS2 — Sanctions"
+    input: |
+      Article 34 – Conditions générales pour imposer des amendes administratives.
+      Les amendes pour les entités essentielles s'élèvent à un minimum de
+      10 000 000 EUR ou 2% du chiffre d'affaires annuel mondial.
+      Les entités importantes : minimum 7 000 000 EUR ou 1,4%.
+      NIS2 s'applique aux secteurs hautement critiques (Annexe I) dont l'Énergie.
+    expected_entities:
+      - {name: "Article 34 – Conditions générales amendes administratives (NIS2)", type: "LegalProvision"}
+      - {name: "Amende – Min 10M€ ou 2% CA mondial (entités essentielles NIS2)", type: "Sanction"}
+      - {name: "Amende – Min 7M€ ou 1.4% CA mondial (entités importantes NIS2)", type: "Sanction"}
+      - {name: "Secteur Énergie (critique, Annexe I NIS2)", type: "Sector"}
+    expected_relations:
+      - {from: "Article 34 – Conditions générales", to: "Amende – Min 10M€", type: "IMPOSES"}
+      - {from: "NIS2", to: "Secteur Énergie", type: "APPLIES_TO"}
