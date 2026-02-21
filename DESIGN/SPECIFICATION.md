@@ -33,14 +33,14 @@
 
 Les systèmes RAG (Retrieval-Augmented Generation) traditionnels souffrent de limitations fondamentales :
 
-| Limitation | RAG vectoriel classique | Graph Memory |
-|-----------|------------------------|--------------|
-| **Structure** | Perte des relations entre concepts (chunks isolés) | Relations explicites et typées entre entités |
-| **Précision** | Similitude cosinus approximative | Requêtes Cypher précises sur le graphe |
-| **Traçabilité** | Chunks anonymes | Entités nommées liées à leurs documents sources |
-| **Multi-documents** | Mélange de chunks hétérogènes | Relations inter-documents explicites |
-| **Exploration** | Recherche unidirectionnelle | Navigation multi-hop dans le graphe |
-| **Visualisation** | Difficile | Graphe interactif natif |
+| Limitation          | RAG vectoriel classique                            | Graph Memory                                    |
+| ------------------- | -------------------------------------------------- | ----------------------------------------------- |
+| **Structure**       | Perte des relations entre concepts (chunks isolés) | Relations explicites et typées entre entités    |
+| **Précision**       | Similitude cosinus approximative                   | Requêtes Cypher précises sur le graphe          |
+| **Traçabilité**     | Chunks anonymes                                    | Entités nommées liées à leurs documents sources |
+| **Multi-documents** | Mélange de chunks hétérogènes                      | Relations inter-documents explicites            |
+| **Exploration**     | Recherche unidirectionnelle                        | Navigation multi-hop dans le graphe             |
+| **Visualisation**   | Difficile                                          | Graphe interactif natif                         |
 
 ### 1.2 La solution : Knowledge Graph as a Service
 
@@ -122,23 +122,23 @@ Graph Memory matérialise ce principe en offrant :
 
 Le framework de Tran et al. distingue 3 stades de collaboration :
 
-| Stade | Description | Implémentation Graph Memory |
-|-------|-------------|----------------------------|
+| Stade           | Description                                 | Implémentation Graph Memory                     |
+| --------------- | ------------------------------------------- | ----------------------------------------------- |
 | **Early-stage** | Partage de données, contexte, environnement | Documents ingérés dans S3, ontologies partagées |
-| **Mid-stage** | Échange de paramètres ou modèles | Non applicable (pas de fine-tuning fédéré) |
-| **Late-stage** | Agrégation d'outputs/actions | Q&A = graphe + RAG fusionnés → réponse LLM |
+| **Mid-stage**   | Échange de paramètres ou modèles            | Non applicable (pas de fine-tuning fédéré)      |
+| **Late-stage**  | Agrégation d'outputs/actions                | Q&A = graphe + RAG fusionnés → réponse LLM      |
 
 Le canal de collaboration `graph_push` entre Live Memory et Graph Memory est un canal coopératif de type **early-stage** (partage de données) avec une structure **centralisée** (Graph Memory = hub de connaissances).
 
 #### 1.6.5 Défis identifiés par le papier et réponses de Graph Memory
 
-| Défi MAS (Tran et al.) | Réponse Graph Memory |
-|------------------------|---------------------|
-| **Hallucinations en cascade** | Extraction guidée par ontologie (types stricts), normalisation, "Other" tracking |
-| **Scalabilité** | Multi-tenancy par namespace, isolation des mémoires |
-| **Gouvernance unifiée** | Tokens avec permissions et contrôle d'accès par mémoire |
-| **Évaluation** | `memory_query` retourne les données brutes pour audit, `storage_check` pour la cohérence |
-| **Sécurité** | WAF OWASP CRS, rate limiting, validation backup_id, contrôle write |
+| Défi MAS (Tran et al.)        | Réponse Graph Memory                                                                     |
+| ----------------------------- | ---------------------------------------------------------------------------------------- |
+| **Hallucinations en cascade** | Extraction guidée par ontologie (types stricts), normalisation, "Other" tracking         |
+| **Scalabilité**               | Multi-tenancy par namespace, isolation des mémoires                                      |
+| **Gouvernance unifiée**       | Tokens avec permissions et contrôle d'accès par mémoire                                  |
+| **Évaluation**                | `memory_query` retourne les données brutes pour audit, `storage_check` pour la cohérence |
+| **Sécurité**                  | WAF OWASP CRS, rate limiting, validation backup_id, contrôle write                       |
 
 ## 2. Architecture
 
@@ -192,20 +192,20 @@ Le canal de collaboration `graph_push` entre Live Memory et Graph Memory est un 
 
 ### 2.2 Stack technique
 
-| Composant | Technologie | Version |
-|-----------|-------------|---------|
-| Runtime | Python | 3.11+ |
-| MCP SDK | `mcp` (FastMCP) | ≥ 1.0.0 |
-| Web Framework | FastAPI + Starlette | ≥ 0.100.0 |
-| ASGI Server | Uvicorn | ≥ 0.20.0 |
-| Graph Database | Neo4j Community | 5.x |
-| Vector Database | Qdrant | v1.16.2 (épinglé) |
-| Object Storage | S3 (Dell ECS / AWS) | boto3 ≥ 1.28.0 |
-| LLM | gpt-oss:120b via LLMaaS | API compatible OpenAI |
-| Embedding | BGE-M3 (bge-m3:567m) | 1024 dimensions |
-| WAF | Coraza + Caddy | OWASP CRS |
-| Configuration | pydantic-settings | ≥ 2.0.0 |
-| CLI | Click + prompt_toolkit + Rich | — |
+| Composant       | Technologie                   | Version               |
+| --------------- | ----------------------------- | --------------------- |
+| Runtime         | Python                        | 3.11+                 |
+| MCP SDK         | `mcp` (FastMCP)               | ≥ 1.0.0               |
+| Web Framework   | FastAPI + Starlette           | ≥ 0.100.0             |
+| ASGI Server     | Uvicorn                       | ≥ 0.20.0              |
+| Graph Database  | Neo4j Community               | 5.x                   |
+| Vector Database | Qdrant                        | v1.16.2 (épinglé)     |
+| Object Storage  | S3 (Dell ECS / AWS)           | boto3 ≥ 1.28.0        |
+| LLM             | gpt-oss:120b via LLMaaS       | API compatible OpenAI |
+| Embedding       | BGE-M3 (bge-m3:567m)          | 1024 dimensions       |
+| WAF             | Coraza + Caddy                | OWASP CRS             |
+| Configuration   | pydantic-settings             | ≥ 2.0.0               |
+| CLI             | Click + prompt_toolkit + Rich | —                     |
 
 ### 2.3 Services externes
 
@@ -272,21 +272,21 @@ Chaque mémoire (`memory_id`) crée un namespace isolé via des **labels préfix
 
 ### 3.2 Nœuds Neo4j
 
-| Label | Propriétés | Description |
-|-------|------------|-------------|
-| `{ns}_Memory` | `id`, `name`, `description`, `ontology`, `created_at` | Métadonnées de la mémoire |
+| Label           | Propriétés                                                                                                                             | Description                             |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `{ns}_Memory`   | `id`, `name`, `description`, `ontology`, `created_at`                                                                                  | Métadonnées de la mémoire               |
 | `{ns}_Document` | `uri`, `filename`, `hash`, `ingested_at`, `metadata`, `source_path`, `source_modified_at`, `size_bytes`, `text_length`, `content_type` | Document source + métadonnées enrichies |
-| `{ns}_Entity` | `name`, `type`, `description`, `mention_count`, `source_docs` | Entité extraite par le LLM |
-| `{ns}_Chunk` | `text`, `index`, `embedding` | Fragment textuel (pour RAG vectoriel) |
+| `{ns}_Entity`   | `name`, `type`, `description`, `mention_count`, `source_docs`                                                                          | Entité extraite par le LLM              |
+| `{ns}_Chunk`    | `text`, `index`, `embedding`                                                                                                           | Fragment textuel (pour RAG vectoriel)   |
 
 ### 3.3 Relations Neo4j
 
-| Type | From → To | Propriétés | Description |
-|------|-----------|------------|-------------|
-| `CONTAINS` | Document → Chunk | `index` | Document contient un chunk |
-| `MENTIONS` | Document → Entity | `count`, `context` | Document mentionne une entité |
-| `DEFINES` | Document → Concept | — | Document définit un concept |
-| `RELATED_TO` | Entity → Entity | `type`, `weight`, `description` | Relation sémantique typée |
+| Type         | From → To          | Propriétés                      | Description                   |
+| ------------ | ------------------ | ------------------------------- | ----------------------------- |
+| `CONTAINS`   | Document → Chunk   | `index`                         | Document contient un chunk    |
+| `MENTIONS`   | Document → Entity  | `count`, `context`              | Document mentionne une entité |
+| `DEFINES`    | Document → Concept | —                               | Document définit un concept   |
+| `RELATED_TO` | Entity → Entity    | `type`, `weight`, `description` | Relation sémantique typée     |
 
 > **Note** : Le type de relation `RELATED_TO` porte une propriété `type` qui contient le vrai type sémantique défini par l'ontologie (ex: `HAS_CERTIFICATION`, `COMPLIANT_WITH`, `IMPOSES`). Avec une bonne ontologie, aucun `RELATED_TO` générique ne devrait apparaître.
 
@@ -332,31 +332,31 @@ Chaque mémoire a sa propre collection Qdrant :
 
 ### 4.1 Gestion des mémoires (5 outils)
 
-| Outil | Paramètres | Auth | Description |
-|-------|-----------|------|-------------|
+| Outil           | Paramètres                                      | Auth      | Description                                                 |
+| --------------- | ----------------------------------------------- | --------- | ----------------------------------------------------------- |
 | `memory_create` | `memory_id`, `name`, `ontology`, `description?` | 🔑 write | Crée une mémoire avec ontologie obligatoire (copiée sur S3) |
-| `memory_delete` | `memory_id` | 🔑 write | Supprime tout : Neo4j + Qdrant + S3 (cascade) |
-| `memory_list` | — | 🔑 read | Liste les mémoires accessibles au token |
-| `memory_stats` | `memory_id` | 🔑 read | Stats : docs, entités, relations, types |
-| `memory_graph` | `memory_id`, `format?` | 🔑 read | Graphe complet (nœuds, arêtes, documents) |
+| `memory_delete` | `memory_id`                                     | 🔑 write | Supprime tout : Neo4j + Qdrant + S3 (cascade)               |
+| `memory_list`   | —                                               | 🔑 read  | Liste les mémoires accessibles au token                     |
+| `memory_stats`  | `memory_id`                                     | 🔑 read  | Stats : docs, entités, relations, types                     |
+| `memory_graph`  | `memory_id`, `format?`                          | 🔑 read  | Graphe complet (nœuds, arêtes, documents)                   |
 
 ### 4.2 Documents (4 outils)
 
-| Outil | Paramètres | Auth | Description |
-|-------|-----------|------|-------------|
-| `memory_ingest` | `memory_id`, `content_base64`, `filename`, `metadata?`, `force?`, `source_path?`, `source_modified_at?` | 🔑 write | Ingère un document : S3 + LLM extraction + Neo4j + Qdrant |
-| `document_list` | `memory_id` | 🔑 read | Liste les documents avec métadonnées |
-| `document_get` | `memory_id`, `filename`, `include_content?` | 🔑 read | Métadonnées (+ contenu S3 si `include_content=true`) |
-| `document_delete` | `memory_id`, `document_id` | 🔑 write | Supprime doc + entités orphelines + chunks Qdrant + fichier S3 |
+| Outil             | Paramètres                                                                                              | Auth      | Description                                                    |
+| ----------------- | ------------------------------------------------------------------------------------------------------- | --------- | -------------------------------------------------------------- |
+| `memory_ingest`   | `memory_id`, `content_base64`, `filename`, `metadata?`, `force?`, `source_path?`, `source_modified_at?` | 🔑 write | Ingère un document : S3 + LLM extraction + Neo4j + Qdrant      |
+| `document_list`   | `memory_id`                                                                                             | 🔑 read  | Liste les documents avec métadonnées                           |
+| `document_get`    | `memory_id`, `filename`, `include_content?`                                                             | 🔑 read  | Métadonnées (+ contenu S3 si `include_content=true`)           |
+| `document_delete` | `memory_id`, `document_id`                                                                              | 🔑 write | Supprime doc + entités orphelines + chunks Qdrant + fichier S3 |
 
 ### 4.3 Recherche et Q&A (4 outils)
 
-| Outil | Paramètres | Auth | Description |
-|-------|-----------|------|-------------|
-| `memory_search` | `memory_id`, `query`, `limit?` | 🔑 read | Recherche d'entités dans le graphe (fulltext) |
-| `memory_get_context` | `memory_id`, `entity_name` | 🔑 read | Contexte complet d'une entité (voisins, docs, relations) |
-| `question_answer` | `memory_id`, `question`, `limit?` | 🔑 read | Question LN → réponse LLM avec Graph-Guided RAG + citations |
-| `memory_query` | `memory_id`, `query`, `limit?` | 🔑 read | Données structurées brutes sans LLM (pour agents IA) |
+| Outil                | Paramètres                        | Auth     | Description                                                 |
+| -------------------- | --------------------------------- | -------- | ----------------------------------------------------------- |
+| `memory_search`      | `memory_id`, `query`, `limit?`    | 🔑 read | Recherche d'entités dans le graphe (fulltext)               |
+| `memory_get_context` | `memory_id`, `entity_name`        | 🔑 read | Contexte complet d'une entité (voisins, docs, relations)    |
+| `question_answer`    | `memory_id`, `question`, `limit?` | 🔑 read | Question LN → réponse LLM avec Graph-Guided RAG + citations |
+| `memory_query`       | `memory_id`, `query`, `limit?`    | 🔑 read | Données structurées brutes sans LLM (pour agents IA)        |
 
 **Différence `question_answer` vs `memory_query`** :
 - `question_answer` : appelle le LLM pour générer une réponse en langage naturel avec citations
@@ -364,52 +364,52 @@ Chaque mémoire a sa propre collection Qdrant :
 
 ### 4.4 Ontologies (1 outil)
 
-| Outil | Paramètres | Auth | Description |
-|-------|-----------|------|-------------|
-| `ontology_list` | — | 🔑 read | Liste les ontologies disponibles avec stats |
+| Outil           | Paramètres | Auth     | Description                                 |
+| --------------- | ---------- | -------- | ------------------------------------------- |
+| `ontology_list` | —          | 🔑 read | Liste les ontologies disponibles avec stats |
 
 ### 4.5 Stockage S3 (2 outils)
 
-| Outil | Paramètres | Auth | Description |
-|-------|-----------|------|-------------|
-| `storage_check` | `memory_id?` | 🔑 read | Vérifie cohérence graphe ↔ S3 (accessibilité, orphelins) |
-| `storage_cleanup` | `dry_run?` | 🔑 write | Nettoie les fichiers S3 orphelins |
+| Outil             | Paramètres   | Auth      | Description                                              |
+| ----------------- | ------------ | --------- | -------------------------------------------------------- |
+| `storage_check`   | `memory_id?` | 🔑 read  | Vérifie cohérence graphe ↔ S3 (accessibilité, orphelins) |
+| `storage_cleanup` | `dry_run?`   | 🔑 write | Nettoie les fichiers S3 orphelins                        |
 
 ### 4.6 Administration tokens (4 outils)
 
-| Outil | Paramètres | Auth | Description |
-|-------|-----------|------|-------------|
-| `admin_create_token` | `client_name`, `permissions?`, `memory_ids?`, `expires_in_days?`, `email?` | 👑 admin | Crée un token Bearer (affiché une seule fois !) |
-| `admin_list_tokens` | — | 👑 admin | Liste les tokens (métadonnées, pas les tokens en clair) |
-| `admin_revoke_token` | `token_hash_prefix` | 👑 admin | Révoque un token par préfixe de hash |
-| `admin_update_token` | `token_hash_prefix`, `add_memories?`, `remove_memories?`, `set_memories?` | 👑 admin | Modifie les mémoires autorisées (add/remove/set) |
+| Outil                | Paramètres                                                                 | Auth      | Description                                             |
+| -------------------- | -------------------------------------------------------------------------- | --------- | ------------------------------------------------------- |
+| `admin_create_token` | `client_name`, `permissions?`, `memory_ids?`, `expires_in_days?`, `email?` | 👑 admin | Crée un token Bearer (affiché une seule fois !)         |
+| `admin_list_tokens`  | —                                                                          | 👑 admin | Liste les tokens (métadonnées, pas les tokens en clair) |
+| `admin_revoke_token` | `token_hash_prefix`                                                        | 👑 admin | Révoque un token par préfixe de hash                    |
+| `admin_update_token` | `token_hash_prefix`, `add_memories?`, `remove_memories?`, `set_memories?`  | 👑 admin | Modifie les mémoires autorisées (add/remove/set)        |
 
 ### 4.7 Backup & Restore (6 outils)
 
-| Outil | Paramètres | Auth | Description |
-|-------|-----------|------|-------------|
-| `backup_create` | `memory_id`, `description?` | 🔑 write | Backup complet sur S3 (Neo4j + Qdrant + manifest) |
-| `backup_list` | `memory_id?` | 🔑 read | Liste les backups avec statistiques |
-| `backup_restore` | `backup_id` | 🔑 write | Restaure depuis S3 (mémoire ne doit pas exister) |
-| `backup_download` | `backup_id`, `include_documents?` | 🔑 read | Archive tar.gz en base64 (+ docs originaux optionnels) |
-| `backup_delete` | `backup_id` | 🔑 write | Supprime un backup de S3 |
-| `backup_restore_archive` | `archive_base64` | 🔑 write | Restaure depuis tar.gz local (re-upload S3 + checksums) |
+| Outil                    | Paramètres                        | Auth      | Description                                             |
+| ------------------------ | --------------------------------- | --------- | ------------------------------------------------------- |
+| `backup_create`          | `memory_id`, `description?`       | 🔑 write | Backup complet sur S3 (Neo4j + Qdrant + manifest)       |
+| `backup_list`            | `memory_id?`                      | 🔑 read  | Liste les backups avec statistiques                     |
+| `backup_restore`         | `backup_id`                       | 🔑 write | Restaure depuis S3 (mémoire ne doit pas exister)        |
+| `backup_download`        | `backup_id`, `include_documents?` | 🔑 read  | Archive tar.gz en base64 (+ docs originaux optionnels)  |
+| `backup_delete`          | `backup_id`                       | 🔑 write | Supprime un backup de S3                                |
+| `backup_restore_archive` | `archive_base64`                  | 🔑 write | Restaure depuis tar.gz local (re-upload S3 + checksums) |
 
 ### 4.8 Système (2 outils)
 
-| Outil | Paramètres | Auth | Description |
-|-------|-----------|------|-------------|
-| `system_health` | — | — | État de santé des 5 services (Neo4j, S3, LLMaaS, Qdrant, Embedding) |
-| `system_about` | — | — | Carte d'identité complète (version, capacités, mémoires, config) |
+| Outil           | Paramètres | Auth | Description                                                         |
+| --------------- | ---------- | ---- | ------------------------------------------------------------------- |
+| `system_health` | —          | —    | État de santé des 5 services (Neo4j, S3, LLMaaS, Qdrant, Embedding) |
+| `system_about`  | —          | —    | Carte d'identité complète (version, capacités, mémoires, config)    |
 
 ### 4.9 Légende des permissions
 
-| Icône | Permission | Description |
-|-------|-----------|-------------|
-| — | Aucune | Accès public (health, about) |
-| 🔑 read | `read` | Token avec permission `read` + accès à la mémoire |
-| 🔑 write | `write` | Token avec permission `write` + accès à la mémoire |
-| 👑 admin | `admin` ou bootstrap | Token admin ou clé bootstrap uniquement |
+| Icône     | Permission           | Description                                        |
+| --------- | -------------------- | -------------------------------------------------- |
+| —         | Aucune               | Accès public (health, about)                       |
+| 🔑 read  | `read`               | Token avec permission `read` + accès à la mémoire  |
+| 🔑 write | `write`              | Token avec permission `write` + accès à la mémoire |
+| 👑 admin | `admin` ou bootstrap | Token admin ou clé bootstrap uniquement            |
 
 ## 5. Pipeline d'ingestion
 
@@ -441,13 +441,13 @@ Document (PDF, DOCX, MD, TXT, HTML, CSV)
 
 ### 5.3 Étape 2 — Extraction texte
 
-| Format | Méthode |
-|--------|---------|
-| `.txt`, `.md` | Lecture directe UTF-8 |
-| `.html` | Stripping des balises |
-| `.csv` | Conversion en texte tabulaire |
-| `.pdf` | Extraction via PyPDF2 / pdfplumber |
-| `.docx` | Extraction via python-docx (paragraphes + tables) |
+| Format        | Méthode                                           |
+| ------------- | ------------------------------------------------- |
+| `.txt`, `.md` | Lecture directe UTF-8                             |
+| `.html`       | Stripping des balises                             |
+| `.csv`        | Conversion en texte tabulaire                     |
+| `.pdf`        | Extraction via PyPDF2 / pdfplumber                |
+| `.docx`       | Extraction via python-docx (paragraphes + tables) |
 
 ### 5.4 Étape 3 — Extraction LLM (ontologie-driven)
 
@@ -594,11 +594,11 @@ normalized = ''.join(c for c in normalized if not unicodedata.combining(c))
 
 ### 6.4 Q&A dual-mode
 
-| Mode | Condition | Contexte LLM | Précision |
-|------|-----------|-------------|-----------|
-| **Graph-Guided RAG** | Entités trouvées dans le graphe | Entités + relations + chunks filtrés par doc_ids | ⭐⭐⭐ Élevée |
-| **RAG-only fallback** | 0 entités dans le graphe | Tous les chunks de la mémoire | ⭐⭐ Moyenne |
-| **Pas d'information** | 0 entités ET 0 chunks pertinents | — | Retour explicite |
+| Mode                  | Condition                        | Contexte LLM                                     | Précision        |
+| --------------------- | -------------------------------- | ------------------------------------------------ | ---------------- |
+| **Graph-Guided RAG**  | Entités trouvées dans le graphe  | Entités + relations + chunks filtrés par doc_ids | ⭐⭐⭐ Élevée    |
+| **RAG-only fallback** | 0 entités dans le graphe         | Tous les chunks de la mémoire                    | ⭐⭐ Moyenne     |
+| **Pas d'information** | 0 entités ET 0 chunks pertinents | —                                                | Retour explicite |
 
 ### 6.5 Prompt Q&A
 
@@ -618,13 +618,13 @@ L'ontologie est le **contrat** entre le développeur et le LLM : elle définit e
 
 ### 7.2 Ontologies fournies
 
-| Ontologie | Fichier | Entités | Relations | Usage |
-|-----------|---------|---------|-----------|-------|
-| `legal` | `ONTOLOGIES/legal.yaml` | 22 types | 22 types | Contrats, CGV, CGVU, documents juridiques |
-| `cloud` | `ONTOLOGIES/cloud.yaml` | 27 types | 19 types | Infrastructure cloud, fiches produits, docs techniques |
-| `managed-services` | `ONTOLOGIES/managed-services.yaml` | 20 types | 16 types | Services managés, infogérance, MCO/MCS |
-| `presales` | `ONTOLOGIES/presales.yaml` | 28 types | 30 types | Avant-vente, RFP/RFI, propositions commerciales |
-| `general` | `ONTOLOGIES/general.yaml` | 28 types | 24 types | Générique : FAQ, référentiels, certifications, RSE, specs |
+| Ontologie          | Fichier                            | Entités  | Relations | Usage                                                     |
+| ------------------ | ---------------------------------- | -------- | --------- | --------------------------------------------------------- |
+| `legal`            | `ONTOLOGIES/legal.yaml`            | 22 types | 22 types  | Contrats, CGV, CGVU, documents juridiques                 |
+| `cloud`            | `ONTOLOGIES/cloud.yaml`            | 27 types | 19 types  | Infrastructure cloud, fiches produits, docs techniques    |
+| `managed-services` | `ONTOLOGIES/managed-services.yaml` | 20 types | 16 types  | Services managés, infogérance, MCO/MCS                    |
+| `presales`         | `ONTOLOGIES/presales.yaml`         | 28 types | 30 types  | Avant-vente, RFP/RFI, propositions commerciales           |
+| `general`          | `ONTOLOGIES/general.yaml`          | 28 types | 24 types  | Générique : FAQ, référentiels, certifications, RSE, specs |
 
 Toutes utilisent les limites d'extraction `max_entities: 60` / `max_relations: 80`.
 
@@ -682,20 +682,20 @@ examples:
 
 ### 7.4 Champs clés
 
-| Champ | Obligatoire | Description |
-|-------|-------------|-------------|
-| `name` | ✅ | Identifiant unique de l'ontologie |
-| `entity_types[].name` | ✅ | Nom du type d'entité (PascalCase) |
-| `entity_types[].description` | ✅ | Description pour guider le LLM |
-| `entity_types[].priority` | ❌ | `high` = extraction prioritaire |
-| `entity_types[].examples` | ❌ | Exemples concrets pour le LLM |
-| `relation_types[].name` | ✅ | Nom du type de relation (UPPER_SNAKE) |
-| `extraction_rules.max_entities` | ❌ | Défaut: 60 |
-| `extraction_rules.max_relations` | ❌ | Défaut: 80 |
-| `extraction_rules.priority_entities` | ❌ | Types à extraire en priorité |
-| `instructions` | ❌ | Instructions générales pour le LLM |
-| `special_instructions` | ❌ | Règles spécifiques, mappings, exclusions |
-| `examples` | ❌ | Exemples input/output pour few-shot |
+| Champ                                | Obligatoire | Description                              |
+| ------------------------------------ | ----------- | ---------------------------------------- |
+| `name`                               | ✅          | Identifiant unique de l'ontologie        |
+| `entity_types[].name`                | ✅          | Nom du type d'entité (PascalCase)        |
+| `entity_types[].description`         | ✅          | Description pour guider le LLM           |
+| `entity_types[].priority`            | ❌          | `high` = extraction prioritaire          |
+| `entity_types[].examples`            | ❌          | Exemples concrets pour le LLM            |
+| `relation_types[].name`              | ✅          | Nom du type de relation (UPPER_SNAKE)    |
+| `extraction_rules.max_entities`      | ❌          | Défaut: 60                               |
+| `extraction_rules.max_relations`     | ❌          | Défaut: 80                               |
+| `extraction_rules.priority_entities` | ❌          | Types à extraire en priorité             |
+| `instructions`                       | ❌          | Instructions générales pour le LLM       |
+| `special_instructions`               | ❌          | Règles spécifiques, mappings, exclusions |
+| `examples`                           | ❌          | Exemples input/output pour few-shot      |
 
 ### 7.5 Bonnes pratiques ontologie
 
@@ -758,12 +758,12 @@ Règles :
 
 ### 8.4 WAF Coraza (OWASP CRS)
 
-| Protection | Détail |
-|-----------|--------|
-| **OWASP CRS** | Injection SQL/XSS, path traversal, SSRF, scanners |
-| **Headers** | CSP, X-Frame-Options DENY, X-Content-Type-Options nosniff, Referrer-Policy, Permissions-Policy |
-| **Rate Limiting** | SSE: 10/min, Messages MCP: 60/min, API: 30/min, Global: 200/min |
-| **TLS** | Let's Encrypt automatique en production (`SITE_ADDRESS=domaine.com`) |
+| Protection        | Détail                                                                                         |
+| ----------------- | ---------------------------------------------------------------------------------------------- |
+| **OWASP CRS**     | Injection SQL/XSS, path traversal, SSRF, scanners                                              |
+| **Headers**       | CSP, X-Frame-Options DENY, X-Content-Type-Options nosniff, Referrer-Policy, Permissions-Policy |
+| **Rate Limiting** | SSE: 10/min, Messages MCP: 60/min, API: 30/min, Global: 200/min                                |
+| **TLS**           | Let's Encrypt automatique en production (`SITE_ADDRESS=domaine.com`)                           |
 
 **Routage intelligent** :
 - Routes SSE/MCP (`/sse*`, `/messages/*`) → reverse proxy direct (streaming incompatible avec WAF)
@@ -772,13 +772,13 @@ Règles :
 
 ### 8.5 Sécurité Backup
 
-| Menace | Mitigation |
-|--------|-----------|
-| **Path traversal S3** | `_validate_backup_id()` : regex `^[A-Za-z0-9_-]+$` sur chaque composant |
+| Menace                     | Mitigation                                                                      |
+| -------------------------- | ------------------------------------------------------------------------------- |
+| **Path traversal S3**      | `_validate_backup_id()` : regex `^[A-Za-z0-9_-]+$` sur chaque composant         |
 | **Path traversal archive** | Rejet `..` et `/` dans les noms de fichiers, normalisation `os.path.basename()` |
-| **Cross-memory access** | Extraction `memory_id` du `backup_id` + `check_memory_access()` |
-| **Token read-only** | `check_write_permission()` sur backup_create/restore/delete |
-| **DoS archive** | `MAX_ARCHIVE_SIZE_BYTES = 100 MB`, rejet avant extraction |
+| **Cross-memory access**    | Extraction `memory_id` du `backup_id` + `check_memory_access()`                 |
+| **Token read-only**        | `check_write_permission()` sur backup_create/restore/delete                     |
+| **DoS archive**            | `MAX_ARCHIVE_SIZE_BYTES = 100 MB`, rejet avant extraction                       |
 
 ### 8.6 Sécurité Docker
 
@@ -904,14 +904,14 @@ graph.html                  — Page principale
 
 ### 10.3 API REST
 
-| Méthode | Endpoint | Auth | Description |
-|---------|----------|------|-------------|
-| `GET` | `/health` | — | État du serveur |
-| `GET` | `/graph` | — | Interface web |
-| `GET` | `/api/memories` | 🔑 | Liste des mémoires |
-| `GET` | `/api/graph/{id}` | 🔑 | Graphe complet d'une mémoire |
-| `POST` | `/api/ask` | 🔑 | Question/Réponse LLM |
-| `POST` | `/api/query` | 🔑 | Données structurées sans LLM |
+| Méthode | Endpoint          | Auth | Description                  |
+| ------- | ----------------- | ---- | ---------------------------- |
+| `GET`   | `/health`         | —    | État du serveur              |
+| `GET`   | `/graph`          | —    | Interface web                |
+| `GET`   | `/api/memories`   | 🔑  | Liste des mémoires           |
+| `GET`   | `/api/graph/{id}` | 🔑  | Graphe complet d'une mémoire |
+| `POST`  | `/api/ask`        | 🔑  | Question/Réponse LLM         |
+| `POST`  | `/api/query`      | 🔑  | Données structurées sans LLM |
 
 ## 11. CLI — Command Line Interface
 
@@ -973,11 +973,11 @@ mcp[JURIDIQUE]> backup-create
 
 ### 11.5 Variables CLI
 
-| Priorité | URL | Token | Source |
-|:--------:|-----|-------|--------|
-| 1 | `MCP_URL` | `MCP_TOKEN` | Shell export |
-| 2 | `MCP_SERVER_URL` | `ADMIN_BOOTSTRAP_KEY` | `.env` via `load_dotenv()` |
-| 3 | — | — | Défaut: `http://localhost:8080` |
+| Priorité | URL              | Token                 | Source                          |
+| :------: | ---------------- | --------------------- | ------------------------------- |
+|    1     | `MCP_URL`        | `MCP_TOKEN`           | Shell export                    |
+|    2     | `MCP_SERVER_URL` | `ADMIN_BOOTSTRAP_KEY` | `.env` via `load_dotenv()`      |
+|    3     | —                | —                     | Défaut: `http://localhost:8080` |
 
 ---
 
@@ -1002,10 +1002,10 @@ Agents IA (Cline, Claude, ...)
 └──────────────────────────┘
 ```
 
-| Niveau | Service | Durée | Contenu |
-|--------|---------|-------|---------|
-| **Mémoire de travail** | Live Memory | Session / projet | Notes brutes + bank Markdown |
-| **Mémoire long terme** | Graph Memory | Permanent | Entités + relations + embeddings |
+| Niveau                 | Service      | Durée            | Contenu                          |
+| ---------------------- | ------------ | ---------------- | -------------------------------- |
+| **Mémoire de travail** | Live Memory  | Session / projet | Notes brutes + bank Markdown     |
+| **Mémoire long terme** | Graph Memory | Permanent        | Entités + relations + embeddings |
 
 ### 12.2 Outils MCP côté Live Memory
 
@@ -1029,60 +1029,60 @@ Agents IA (Cline, Claude, ...)
 ### 13.1 Variables d'environnement complètes
 
 #### S3
-| Variable | Défaut | Description |
-|----------|--------|-------------|
-| `S3_ENDPOINT_URL` | `https://takinc5acc.s3.fr1.cloud-temple.com` | Endpoint S3 |
-| `S3_ACCESS_KEY_ID` | — (obligatoire) | Clé d'accès S3 |
-| `S3_SECRET_ACCESS_KEY` | — (obligatoire) | Secret S3 |
-| `S3_BUCKET_NAME` | `quoteflow-memory` | Nom du bucket |
+| Variable               | Défaut                                       | Description    |
+| ---------------------- | -------------------------------------------- | -------------- |
+| `S3_ENDPOINT_URL`      | `https://takinc5acc.s3.fr1.cloud-temple.com` | Endpoint S3    |
+| `S3_ACCESS_KEY_ID`     | — (obligatoire)                              | Clé d'accès S3 |
+| `S3_SECRET_ACCESS_KEY` | — (obligatoire)                              | Secret S3      |
+| `S3_BUCKET_NAME`       | `quoteflow-memory`                           | Nom du bucket  |
 
 #### LLMaaS
-| Variable | Défaut | Description |
-|----------|--------|-------------|
-| `LLMAAS_API_URL` | `https://api.ai.cloud-temple.com` | Endpoint LLMaaS |
-| `LLMAAS_API_KEY` | — (obligatoire) | Clé API |
-| `LLMAAS_MODEL` | `gpt-oss:120b` | Modèle extraction/Q&A |
-| `LLMAAS_MAX_TOKENS` | `60000` | Max tokens par réponse |
-| `LLMAAS_TEMPERATURE` | `1.0` | Température (gpt-oss requiert 1.0) |
-| `LLMAAS_EMBEDDING_MODEL` | `bge-m3:567m` | Modèle embedding |
-| `LLMAAS_EMBEDDING_DIMENSIONS` | `1024` | Dimensions vecteurs |
+| Variable                      | Défaut                            | Description                        |
+| ----------------------------- | --------------------------------- | ---------------------------------- |
+| `LLMAAS_API_URL`              | `https://api.ai.cloud-temple.com` | Endpoint LLMaaS                    |
+| `LLMAAS_API_KEY`              | — (obligatoire)                   | Clé API                            |
+| `LLMAAS_MODEL`                | `gpt-oss:120b`                    | Modèle extraction/Q&A              |
+| `LLMAAS_MAX_TOKENS`           | `60000`                           | Max tokens par réponse             |
+| `LLMAAS_TEMPERATURE`          | `1.0`                             | Température (gpt-oss requiert 1.0) |
+| `LLMAAS_EMBEDDING_MODEL`      | `bge-m3:567m`                     | Modèle embedding                   |
+| `LLMAAS_EMBEDDING_DIMENSIONS` | `1024`                            | Dimensions vecteurs                |
 
 #### Neo4j
-| Variable | Défaut | Description |
-|----------|--------|-------------|
-| `NEO4J_URI` | `bolt://neo4j:7687` | URI Neo4j |
-| `NEO4J_USER` | `neo4j` | Utilisateur |
-| `NEO4J_PASSWORD` | — (obligatoire) | Mot de passe |
+| Variable         | Défaut              | Description  |
+| ---------------- | ------------------- | ------------ |
+| `NEO4J_URI`      | `bolt://neo4j:7687` | URI Neo4j    |
+| `NEO4J_USER`     | `neo4j`             | Utilisateur  |
+| `NEO4J_PASSWORD` | — (obligatoire)     | Mot de passe |
 
 #### Qdrant
-| Variable | Défaut | Description |
-|----------|--------|-------------|
-| `QDRANT_URL` | `http://qdrant:6333` | URL Qdrant |
-| `QDRANT_COLLECTION_PREFIX` | `memory_` | Préfixe des collections |
+| Variable                   | Défaut               | Description             |
+| -------------------------- | -------------------- | ----------------------- |
+| `QDRANT_URL`               | `http://qdrant:6333` | URL Qdrant              |
+| `QDRANT_COLLECTION_PREFIX` | `memory_`            | Préfixe des collections |
 
 #### Extraction & Chunking
-| Variable | Défaut | Description |
-|----------|--------|-------------|
-| `EXTRACTION_MAX_TEXT_LENGTH` | `950000` | Max chars envoyés au LLM |
-| `EXTRACTION_CHUNK_SIZE` | `25000` | Max chars par chunk d'extraction |
-| `EXTRACTION_TIMEOUT_SECONDS` | `600` | Timeout par appel LLM (10 min) |
-| `CHUNK_SIZE` | `500` | Taille cible en tokens par chunk RAG |
-| `CHUNK_OVERLAP` | `50` | Tokens de chevauchement |
+| Variable                     | Défaut   | Description                          |
+| ---------------------------- | -------- | ------------------------------------ |
+| `EXTRACTION_MAX_TEXT_LENGTH` | `950000` | Max chars envoyés au LLM             |
+| `EXTRACTION_CHUNK_SIZE`      | `25000`  | Max chars par chunk d'extraction     |
+| `EXTRACTION_TIMEOUT_SECONDS` | `600`    | Timeout par appel LLM (10 min)       |
+| `CHUNK_SIZE`                 | `500`    | Taille cible en tokens par chunk RAG |
+| `CHUNK_OVERLAP`              | `50`     | Tokens de chevauchement              |
 
 #### RAG
-| Variable | Défaut | Description |
-|----------|--------|-------------|
+| Variable              | Défaut | Description               |
+| --------------------- | ------ | ------------------------- |
 | `RAG_SCORE_THRESHOLD` | `0.58` | Score cosinus min. BGE-M3 |
-| `RAG_CHUNK_LIMIT` | `8` | Max chunks retournés |
+| `RAG_CHUNK_LIMIT`     | `8`    | Max chunks retournés      |
 
 #### Serveur & Auth
-| Variable | Défaut | Description |
-|----------|--------|-------------|
-| `MCP_SERVER_PORT` | `8002` | Port d'écoute |
-| `MCP_SERVER_HOST` | `0.0.0.0` | Host (0.0.0.0 = désactive DNS rebinding) |
-| `MCP_SERVER_DEBUG` | `false` | Logs détaillés |
-| `ADMIN_BOOTSTRAP_KEY` | — | Clé pour créer le premier token |
-| `BACKUP_RETENTION_COUNT` | `5` | Backups conservés par mémoire |
+| Variable                 | Défaut    | Description                              |
+| ------------------------ | --------- | ---------------------------------------- |
+| `MCP_SERVER_PORT`        | `8002`    | Port d'écoute                            |
+| `MCP_SERVER_HOST`        | `0.0.0.0` | Host (0.0.0.0 = désactive DNS rebinding) |
+| `MCP_SERVER_DEBUG`       | `false`   | Logs détaillés                           |
+| `ADMIN_BOOTSTRAP_KEY`    | —         | Clé pour créer le premier token          |
+| `BACKUP_RETENTION_COUNT` | `5`       | Backups conservés par mémoire            |
 
 ---
 

@@ -70,9 +70,6 @@ temp/
 # === Données métier (confidentielles) ===
 /JURIDIQUE/
 
-# === Documents internes (design, specs) ===
-/DESIGN/
-
 # === Cline (fichiers internes de travail) ===
 /.clinerules/
 /memory-bank/
@@ -83,4 +80,4 @@ AUDIT_SECURITE_2026-02-16.md
 scripts/analyze_entities.py
 scripts/analyze_others.py
 REFERENTIELS/
-
+/chantier/
