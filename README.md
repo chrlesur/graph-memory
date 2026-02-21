@@ -847,6 +847,51 @@ graph-memory/
 
 ---
 
+## 🌉 Intégration avec Live Memory — Architecture mémoire à deux niveaux
+
+Graph Memory s'intègre nativement avec [Live Memory](https://github.com/chrlesur/live-memory), un serveur MCP de mémoire de travail pour agents IA collaboratifs. Ensemble, ils forment une **architecture mémoire à deux niveaux** pour les systèmes multi-agents.
+
+### Pourquoi deux niveaux de mémoire ?
+
+La recherche récente sur les MAS à base de LLM ([Tran et al., 2025 — *Multi-Agent Collaboration Mechanisms*](https://arxiv.org/abs/2501.06322)) identifie la mémoire partagée comme composant fondamental des systèmes collaboratifs. Un seul niveau ne suffit pas :
+
+| Niveau | Service | Durée | Contenu | Usage |
+|--------|---------|-------|---------|-------|
+| **Mémoire de travail** | Live Memory | Session / projet | Notes brutes + bank consolidée Markdown | Contexte opérationnel quotidien |
+| **Mémoire long terme** | Graph Memory | Permanent | Entités + relations + embeddings vectoriels | Base de connaissances interrogeable |
+
+```
+  Agents IA (Cline, Claude, ...)
+       │
+       ▼
+  ┌─────────────────────┐
+  │  Live Memory        │  Notes temps réel → LLM → Memory Bank
+  │  (mémoire travail)  │  S3-only, pas de BDD
+  └──────────┬──────────┘
+             │ graph_push (MCP SSE)
+             │ delete + re-ingest → recalcul du graphe
+             ▼
+  ┌──────────────────────┐
+  │  Graph Memory        │  Entités + Relations + RAG vectoriel
+  │  (mémoire long terme)│  Neo4j + Qdrant + S3
+  └──────────────────────┘
+```
+
+### Comment ça marche
+
+Live Memory dispose de 4 outils MCP dédiés (`graph_connect`, `graph_push`, `graph_status`, `graph_disconnect`). Le flux :
+
+1. **`graph_connect`** — L'agent connecte son space Live Memory à une mémoire Graph Memory (crée la mémoire si besoin, ontologie paramétrable)
+2. **`bank_consolidate`** — Le LLM de Live Memory consolide les notes en fichiers bank Markdown
+3. **`graph_push`** — Les fichiers bank sont poussés dans Graph Memory via le protocole MCP SSE. Chaque fichier est supprimé puis ré-ingéré pour recalculer le graphe complet
+4. **`graph_status`** — Vérifie la connexion et affiche les stats (documents, entités, relations, top entités)
+
+### Résultat
+
+Les fichiers Markdown de la memory bank deviennent des **entités et relations** dans le graphe de connaissances, interrogeables en langage naturel via `question_answer`. Les connaissances de travail des agents sont ainsi pérennisées et structurées.
+
+---
+
 ## 🔍 Dépannage
 
 ### Le service ne démarre pas

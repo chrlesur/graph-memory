@@ -1,6 +1,40 @@
 #  Active Context
 
-## Focus actuel (mis à jour 2026-02-19)
+## Focus actuel (mis à jour 2026-02-21)
+
+### Intégration Live Memory — Architecture mémoire à deux niveaux (2026-02-21)
+
+**Nouveau** : Le README a été mis à jour (par l'assistant Live Memory) pour documenter l'intégration native entre **Live Memory** (mémoire de travail) et **Graph Memory** (mémoire long terme).
+
+**Architecture à deux niveaux** :
+| Niveau | Service | Durée | Contenu | Usage |
+|--------|---------|-------|---------|-------|
+| **Mémoire de travail** | Live Memory | Session / projet | Notes brutes + bank consolidée Markdown | Contexte opérationnel quotidien |
+| **Mémoire long terme** | Graph Memory | Permanent | Entités + relations + embeddings vectoriels | Base de connaissances interrogeable |
+
+**4 outils MCP dans Live Memory** dédiés à l'intégration :
+1. `graph_connect` — Connecte un space Live Memory à une mémoire Graph Memory (crée la mémoire si besoin)
+2. `bank_consolidate` — Le LLM de Live Memory consolide les notes en fichiers bank Markdown
+3. `graph_push` — Pousse les fichiers bank vers Graph Memory via MCP SSE (delete + re-ingest → recalcul graphe)
+4. `graph_status` — Vérifie la connexion et affiche les stats (documents, entités, relations, top entités)
+
+**Flux** :
+```
+Agents IA (Cline, Claude, ...)
+     │
+     ▼
+Live Memory (mémoire travail) → Notes temps réel → LLM → Memory Bank
+     │
+     │ graph_push (MCP SSE) : delete + re-ingest
+     ▼
+Graph Memory (mémoire long terme) → Entités + Relations + RAG vectoriel
+```
+
+**Référence académique** : Tran et al., 2025 — *Multi-Agent Collaboration Mechanisms* (arxiv:2501.06322)
+
+**Impact** : Les fichiers Markdown de la memory bank Live Memory deviennent des entités et relations dans le graphe de connaissances, interrogeables en langage naturel via `question_answer`. Les connaissances de travail des agents sont pérennisées et structurées.
+
+---
 
 ### Ontologie general.yaml v1.1 — Réduction "Other" REFERENTIEL v1.3.7 (SESSION COURANTE — 2026-02-19)
 

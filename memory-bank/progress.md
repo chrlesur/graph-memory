@@ -167,6 +167,13 @@
 - Les fichiers `_backups/` sont exclus de la détection d'orphelins (gérés par `backup_list`)
 - Quand scopé à une mémoire, la détection d'orphelins charge les URIs de TOUTES les mémoires (pas de faux-positifs)
 
+### Intégration Live Memory (2026-02-21)
+- **Architecture mémoire à deux niveaux** documentée dans le README : Live Memory (mémoire de travail) ↔ Graph Memory (mémoire long terme)
+- 4 outils MCP dans Live Memory pour l'intégration : `graph_connect`, `graph_push`, `graph_status`, `graph_disconnect`
+- Flux : `bank_consolidate` → `graph_push` (delete + re-ingest → recalcul du graphe)
+- Les fichiers Markdown de la memory bank Live Memory deviennent des entités et relations interrogeables en langage naturel
+- Référence académique : Tran et al., 2025 — *Multi-Agent Collaboration Mechanisms*
+
 ### Branding & Q&A amélioré
 - Logo Cloud Temple SVG en header + couleur accent `#41a890`
 - Prompt ASK cite les documents sources (chaque entité inclut `[Source: filename]`)
