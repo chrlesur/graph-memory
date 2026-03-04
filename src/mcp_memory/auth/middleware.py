@@ -293,10 +293,26 @@ class StaticFilesMiddleware:
                 break
         return body
     
+    def _read_version(self) -> str:
+        """Lit la version depuis le fichier VERSION."""
+        try:
+            # auth/middleware.py → auth → mcp_memory → src → project root
+            version_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+                "VERSION"
+            )
+            if os.path.exists(version_path):
+                with open(version_path) as f:
+                    return f.read().strip()
+        except Exception:
+            pass
+        return "unknown"
+
     async def _api_health(self, send):
         """Retourne l'état de santé du serveur."""
         import json
         from datetime import datetime
+        version = self._read_version()
         try:
             # Test rapide Neo4j via une requête simple
             neo4j_ok = False
@@ -310,7 +326,7 @@ class StaticFilesMiddleware:
             
             data = {
                 "status": "healthy" if neo4j_ok else "degraded",
-                "version": "1.1.0",
+                "version": version,
                 "timestamp": datetime.utcnow().isoformat(),
                 "services": {
                     "neo4j": {"status": "ok" if neo4j_ok else "error", "message": neo4j_msg}
@@ -320,7 +336,7 @@ class StaticFilesMiddleware:
         except Exception as e:
             await self._send_json(send, {
                 "status": "error",
-                "version": "1.1.0",
+                "version": version,
                 "message": str(e)
             }, 500)
     

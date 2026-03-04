@@ -164,11 +164,11 @@ async def call_tool(tool_name: str, args: dict = {}, expect_status: str = "ok") 
 
 async def call_rest(endpoint: str) -> dict:
     """Appelle un endpoint REST GET."""
-    import aiohttp
+    import httpx
     headers = {"Authorization": f"Bearer {TOKEN}"}
-    async with aiohttp.ClientSession() as session:
-        async with session.get(f"{BASE_URL}{endpoint}", headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-            return await resp.json()
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(f"{BASE_URL}{endpoint}", headers=headers)
+        return resp.json()
 
 
 # =============================================================================
