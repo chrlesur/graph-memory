@@ -314,7 +314,7 @@ class StaticFilesMiddleware:
         version = self._read_version()
         try:
             data = {
-                "status": "ok",
+                "status": "healthy",
                 "service": "graph-memory",
                 "version": version,
                 "transport": "streamable-http",
