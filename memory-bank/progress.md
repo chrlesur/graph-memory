@@ -2,6 +2,13 @@
 
 ## Ce qui fonctionne ✅
 
+### Descriptions paramètres MCP + Health compact (2026-03-08)
+- **53 paramètres annotés** : tous les paramètres utilisateur des 28 tools MCP avec `Annotated[type, Field(description="...")]`
+- **5 paramètres `ctx`** : sans description (internes FastMCP)
+- **Endpoint `/health` simplifié** : format compact `{status, service, version, transport}` aligné sur live-memory
+- **Scripts de vérification** : `check_param_descriptions.py` (statique, 53/53 ✅) + `check_mcp_tools_api.py` (live via MCP `tools/list`)
+- **Vérifié en Docker Compose** : build OK, services healthy, API MCP 53/53 descriptions
+
 ### Migration Streamable HTTP (branche dev/streamable-http — 2026-04-03)
 - **Transport MCP** : SSE → Streamable HTTP (`mcp.streamable_http_app()`, endpoint `/mcp`)
 - **Client CLI** : `streamablehttp_client` (SDK MCP ≥1.8.0)
