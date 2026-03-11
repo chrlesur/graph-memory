@@ -2,19 +2,19 @@
 
 ## Ce qui fonctionne ✅
 
-### Descriptions paramètres MCP + Health compact (2026-03-08)
-- **53 paramètres annotés** : tous les paramètres utilisateur des 28 tools MCP avec `Annotated[type, Field(description="...")]`
-- **5 paramètres `ctx`** : sans description (internes FastMCP)
-- **Endpoint `/health` simplifié** : format compact `{status, service, version, transport}` aligné sur live-memory
-- **Scripts de vérification** : `check_param_descriptions.py` (statique, 53/53 ✅) + `check_mcp_tools_api.py` (live via MCP `tools/list`)
-- **Vérifié en Docker Compose** : build OK, services healthy, API MCP 53/53 descriptions
+### Ontologie software-development v1.2 (2026-03-11)
+- **Nouvelle ontologie `software-development`** pour l'ingestion de code source — 21 types d'entités + 23 types de relations
+- **Types d'entités** : Package, Module, Layer, Class, Function, Middleware, DataModel, Enum, MCPTool, APIEndpoint, Protocol, ExternalService, Dependency, ConfigParameter, DesignPattern, Algorithm, TestCase, Documentation, Feature, InfraComponent, SecurityBoundary
+- **Relations v1.1** : +UPDATES, +READS (mutations et lectures de données)
+- **Relations v1.2** : +PROTECTS, +ROUTES_TO (sécurité et infra)
+- **Règles avancées** : nommage canonique (fusion cross-docs), 12 mappings obligatoires (EXECUTES→CALLS, etc.), connectivité minimum ≥2, anti-hub (max 30/Class), zéro "Other"
+- **Script d'audit** : `scripts/audit_ontology.py` — analyse conformité types, orphelins, hubs, fusion cross-docs, nommage
+- **Script d'ingestion en masse** : `scripts/ingest_quoteflow.sh` — 189 fichiers (backend + auth + frontend)
+- **Test QuoteFlow** : 965 entités, 910 relations, 99% conformité entités, 95% conformité relations
+- **Couverture SPECIFICATION.md** : ~95% (code + infra + sécurité)
+- **VERSION** bumpé 1.4.1 → 1.5.0, documentation complète mise à jour
 
-### Migration Streamable HTTP (branche dev/streamable-http — 2026-04-03)
-- **Transport MCP** : SSE → Streamable HTTP (`mcp.streamable_http_app()`, endpoint `/mcp`)
-- **Client CLI** : `streamablehttp_client` (SDK MCP ≥1.8.0)
-- **WAF** : route unique `/mcp*` (remplace `/sse*` + `/messages/*`)
-- **Rate limiting** : 200 req/min MCP, 500 global (×3 car Streamable HTTP = 3 req/appel)
-- **HostNormalizerMiddleware** supprimé (plus nécessaire)
+### Descriptions paramètres MCP + Health compact (202
 - **Dockerfile** : `COPY VERSION .` + healthcheck `/health`
 - **/health** : version lue dynamiquement depuis fichier `VERSION` (pas hardcodée)
 - **README.en.md** : version anglaise du README

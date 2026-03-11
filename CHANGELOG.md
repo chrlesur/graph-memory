@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.5.0] - 2026-03-11
+
+### 🧠 Nouvelle ontologie `software-development` v1.2
+
+Ontologie spécialisée pour l'ingestion de code source et de documentation technique dans graph-memory. Permet à un agent IA de comprendre l'architecture, les composants, les dépendances et les patterns d'un projet logiciel.
+
+#### Ajouté
+- 📚 **Ontologie `software-development` v1.2** — 21 types d'entités + 23 types de relations, couvrant :
+  - Architecture logicielle : `Package`, `Module`, `Layer`, `Class`, `Function`, `Middleware`
+  - Données : `DataModel`, `Enum`
+  - APIs : `MCPTool`, `APIEndpoint`, `Protocol`
+  - Infrastructure : `ExternalService`, `Dependency`, `ConfigParameter`, `InfraComponent`, `SecurityBoundary`
+  - Qualité : `DesignPattern`, `Algorithm`, `TestCase`, `Documentation`, `Feature`
+  - Relations : `CONTAINS`, `PART_OF`, `BELONGS_TO_LAYER`, `DEPENDS_ON`, `IMPORTS`, `USES`, `CALLS`, `INHERITS_FROM`, `IMPLEMENTS`, `RETURNS`, `ACCEPTS`, `PRODUCES`, `STORES_IN`, `EXPOSES`, `DELEGATES_TO`, `UPDATES`, `READS`, `CONFIGURED_BY`, `TESTED_BY`, `DOCUMENTED_IN`, `IMPLEMENTS_FEATURE`, `PROTECTS`, `ROUTES_TO`
+- 🔍 **Script d'audit d'ontologie** — `scripts/audit_ontology.py` : analyse la qualité d'extraction sur une mémoire (conformité types, orphelins, hubs, fusion cross-docs, nommage)
+- 📦 **Script d'ingestion en masse** — `scripts/ingest_quoteflow.sh` : ingestion automatique de projets complets (backend + auth + frontend)
+- 📐 **Règles avancées d'extraction** :
+  - Nommage canonique (fusion cross-documents)
+  - 12 mappings obligatoires de relations (EXECUTES→CALLS, IMPLEMENTED_BY→IMPLEMENTS, etc.)
+  - Connectivité minimum (≥2 relations par entité)
+  - Anti-hub rules (max 30 relations par Class)
+  - Zéro entité de type "Other"
+
+#### Résultats du test sur QuoteFlow (backend Python/FastAPI)
+- 965 entités, 910 relations extraites de 10 fichiers Python
+- 99% de conformité des types d'entités
+- 95% de conformité des types de relations
+- Types les plus représentés : Function (23%), APIEndpoint (14%), ConfigParameter (10%), MCPTool (10%)
+
+---
+
 ## [1.4.0] - 2026-04-03
 
 ### 📋 Descriptions de paramètres MCP tools (2026-03-08)

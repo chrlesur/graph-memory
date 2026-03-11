@@ -1,6 +1,6 @@
 # Cahier de Spécification Technique — Graph Memory
 
-> **Version** : 1.4.0 | **Date** : 8 mars 2026
+> **Version** : 1.5.0 | **Date** : 11 mars 2026
 > **Auteur** : Christophe Lesur & Cloud Temple
 > **Repository** : https://github.com/chrlesur/graph-memory
 
@@ -67,7 +67,7 @@ Les systèmes RAG (Retrieval-Augmented Generation) traditionnels souffrent de li
 
 **Inclus (v1.4.0)** :
 - Serveur MCP Streamable HTTP (28 outils)
-- 5 ontologies (legal, cloud, managed-services, presales, general)
+- 6 ontologies (legal, cloud, managed-services, presales, general, software-development)
 - Interface web interactive (graphe vis-network, panneau Q&A)
 - CLI complète (Click scriptable + Shell interactif)
 - Backup/Restore 3 couches (Neo4j + Qdrant + S3)
@@ -628,8 +628,9 @@ L'ontologie est le **contrat** entre le développeur et le LLM : elle définit e
 | `managed-services` | `ONTOLOGIES/managed-services.yaml` | 20 types | 16 types  | Services managés, infogérance, MCO/MCS                    |
 | `presales`         | `ONTOLOGIES/presales.yaml`         | 28 types | 30 types  | Avant-vente, RFP/RFI, propositions commerciales           |
 | `general`          | `ONTOLOGIES/general.yaml`          | 26 types | 24 types  | Générique : FAQ, référentiels, certifications, RSE, specs |
+| `software-development` | `ONTOLOGIES/software-development.yaml` | 21 types | 23 types  | Code source, architecture logicielle, APIs, patterns, infra |
 
-Toutes utilisent les limites d'extraction `max_entities: 60` / `max_relations: 80`.
+Les ontologies métier utilisent `max_entities: 60` / `max_relations: 80`. L'ontologie `software-development` utilise `max_entities: 160` / `max_relations: 240` (code source plus dense).
 
 ### 7.3 Format YAML d'une ontologie
 
@@ -1168,7 +1169,8 @@ graph-memory/
 │   ├── cloud.yaml            # 26 entités / 19 relations (v1.2)
 │   ├── managed-services.yaml # 20 entités / 16 relations
 │   ├── presales.yaml         # 28 entités / 30 relations (v1.1)
-│   └── general.yaml          # 26 entités / 24 relations (v1.1)
+│   ├── general.yaml          # 26 entités / 24 relations (v1.1)
+│   └── software-development.yaml # 21 entités / 23 relations (v1.2)
 │
 ├── scripts/                  # CLI et utilitaires
 │   ├── mcp_cli.py            # Point d'entrée CLI
@@ -1230,5 +1232,5 @@ graph-memory/
 
 ---
 
-*Graph Memory v1.4.0 — Cahier de Spécification — 8 mars 2026*
+*Graph Memory v1.5.0 — Cahier de Spécification — 11 mars 2026*
 *Développé par Cloud Temple — https://www.cloud-temple.com*

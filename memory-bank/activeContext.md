@@ -1,86 +1,58 @@
 # Active Context
 
-## Focus actuel (mis à jour 2026-03-08)
+## Contexte actuel (11 mars 2026)
 
-### Descriptions de paramètres MCP tools — TERMINÉ
+### Focus : Ontologie software-development v1.2
 
-**Contexte** : Quand un serveur MCP est connecté à Cline, les paramètres des tools s'affichent dans l'interface. Sans description dans le schéma JSON, Cline affiche "No description" — inutile pour le LLM et l'utilisateur.
+Nouvelle ontologie créée, testée, auditée et itérée pour l'ingestion de code source dans graph-memory.
 
-**Solution appliquée** : Tous les **53 paramètres utilisateur** des **28 tools MCP** utilisent maintenant le pattern `Annotated[type, Field(description="...")]` de Pydantic dans `server.py`. Les 5 paramètres `ctx: Optional[Context]` restent sans description (internes FastMCP).
+**Ontologie v1.2** — `ONTOLOGIES/software-development.yaml` :
+- 21 types d'entités (Package, Module, Layer, Class, Function, Middleware, DataModel, Enum, MCPTool, APIEndpoint, Protocol, ExternalService, Dependency, ConfigParameter, DesignPattern, Algorithm, TestCase, Documentation, Feature, InfraComponent, SecurityBoundary)
+- 23 types de relations (CONTAINS, PART_OF, BELONGS_TO_LAYER, DEPENDS_ON, IMPORTS, USES, CALLS, INHERITS_FROM, IMPLEMENTS, RETURNS, ACCEPTS, PRODUCES, STORES_IN, EXPOSES, DELEGATES_TO, UPDATES, READS, CONFIGURED_BY, TESTED_BY, DOCUMENTED_IN, IMPLEMENTS_FEATURE, PROTECTS, ROUTES_TO)
 
-**Script de vérification** : `scripts/check_param_descriptions.py` — vérifie automatiquement la conformité.
+### Évolutions v1.0 → v1.1 → v1.2
 
----
+- **v1.0** : Création initiale (19 entités, 19 relations)
+- **v1.1** : Post-audit — +UPDATES, +READS, 12 mappings obligatoires (EXECUTES→CALLS, etc.), nommage canonique pour fusion cross-docs, anti-hub rules, connectivité minimum ≥2, zéro "Other"
+- **v1.2** : Post-analyse DESIGN — +InfraComponent, +SecurityBoundary, +PROTECTS, +ROUTES_TO pour couvrir l'architecture d'infrastructure et la sécurité (~95% de SPECIFICATION.md)
 
-## Focus précédent (mis à jour 2026-04-03)
+### Résultats du test sur QuoteFlow (backend Python/FastAPI)
 
-### Migration SSE → Streamable HTTP (issue #1) — EN COURS SUR BRANCHE DEV
+Audit sur 10 documents ingérés (v1.1) :
+- 965 entités, 910 relations
+- 99% conformité entités (1 seul type "Other")
+- 95% conformité relations (12 types inventés → corrigés en v1.1 avec mappings)
+- 33% orphelins (objectif <20% avec v1.2)
+- 0% fusion cross-docs (objectif >10% avec nommage canonique v1.1)
 
-**Branche** : `dev/streamable-http` (4 commits, en attente de commit final + merge)
+### Outils créés
 
-**Contexte** : L'issue GitHub #1 demande la migration du transport SSE (déprécié dans la spec MCP 2025-03-26) vers Streamable HTTP. Migration propre sans rétrocompatibilité.
+- `scripts/audit_ontology.py` — Audit qualité du graphe (distribution types, hubs, orphelins, fusion, nommage)
+- `scripts/ingest_quoteflow.sh` — Ingestion en masse d'un projet complet (189 fichiers QuoteFlow)
+- `scripts/test_ontology.py` — Script de test MCP (non utilisé, remplacé par CLI)
 
-**Changements effectués** :
+### Documentation mise à jour
 
-| Composant | Avant | Après |
-|-----------|-------|-------|
-| **server.py** | `mcp.sse_app()` → endpoints `/sse` + `/messages` | `mcp.streamable_http_app()` → endpoint unique `/mcp` |
-| **client.py** | `from mcp.client.sse import sse_client` | `from mcp.client.streamable_http import streamablehttp_client` |
-| **middleware.py** | `HostNormalizerMiddleware` (workaround Host header) | Supprimé (plus nécessaire) |
-| **requirements.txt** | `mcp>=1.0.0` | `mcp>=1.8.0` |
-| **waf/Caddyfile** | Routes `/sse*` + `/messages/*` séparées | Route unique `/mcp*` |
-| **Rate limiting** | SSE 10/min + messages 60/min + global 200/min | MCP 200/min + global 500/min |
-| **Dockerfile** | Healthcheck `/sse`, VERSION non copié | Healthcheck `/health`, `COPY VERSION .` |
-| **middleware health** | Version hardcodée `"1.1.0"` | Lecture dynamique fichier `VERSION` |
+- VERSION bumpé 1.4.1 → 1.5.0
+- CHANGELOG.md — Entrée v1.5.0 complète
+- DESIGN/SPECIFICATION.md — Table ontologies §7.2, listing §15, "6 ontologies", footer v1.5.0
+- README.md / README.en.md — Changelog factorisé → pointeur CHANGELOG.md, "6 ontologies"
 
-**Tests de qualification** : `scripts/test_streamable_http.py` — **27/27 PASS en 10.4s**
+### Ingestion en cours
 
-**Fichiers modifiés** (branche dev vs main) :
-- `src/mcp_memory/server.py` — streamable_http_app()
-- `scripts/cli/client.py` — streamablehttp_client
-- `src/mcp_memory/auth/middleware.py` — suppression HostNormalizerMiddleware + fix version
-- `requirements.txt` — mcp>=1.8.0
-- `waf/Caddyfile` — route /mcp + rate limits ajustés
-- `Dockerfile` — COPY VERSION + healthcheck /health
-- `README.md` — SSE → Streamable HTTP partout
-- `README.en.md` — nouvelle version anglaise
-- `scripts/README.md` — SSE → Streamable HTTP
-- `scripts/test_streamable_http.py` — script de test complet
-- `starter-kit/boilerplate/` — tous les fichiers alignés
+L'ingestion v1.2 de QuoteFlow (189 fichiers) est en cours en arrière-plan.
+Suivi : `tail -f scripts/ingest_quoteflow.log`
 
-**Documentation mise à jour (2026-04-03)** :
-- CHANGELOG.md : entrée v1.4.0 complète (migration SSE → Streamable HTTP)
-- README.md : section Changelog mise à jour (v1.4.0 + v1.3.7), footer v1.4.0
-- docker-compose.yml : healthcheck corrigé `/sse` → `/health` (causait des 404 en boucle)
-- README.en.md : restauré (traduction fidèle à faire manuellement par Christophe)
+### Prochaines étapes
 
-**Prochaines étapes** :
-- [ ] Traduire README.en.md + créer CHANGELOG.en.md (Christophe s'en occupe)
-- [ ] Commit final de la documentation + healthcheck fix
-- [ ] Merge sur main + bump VERSION → 1.4.0
-- [ ] Redéployer en production
-- [ ] Coordonner la migration Live Memory (même pattern)
+1. Attendre la fin de l'ingestion QuoteFlow et refaire un audit v1.2
+2. Comparer les métriques v1.1 vs v1.2 (orphelins, fusion, types inventés)
+3. Auto-ingérer graph-memory dans graph-memory (cas d'usage premier de l'ontologie)
+4. Tester l'ingestion de code JavaScript/JSX (frontend QuoteFlow)
 
----
+### Décisions importantes
 
-### Découvertes pendant la migration
-
-1. **Rate limiting Streamable HTTP** : Chaque appel d'outil MCP = 3 requêtes HTTP (POST init + POST call + DELETE close). L'ancien rate limiting SSE (60/min) était trop bas → augmenté à 200/min pour /mcp.
-
-2. **`HostNormalizerMiddleware` obsolète** : Ce middleware normalisait le Host header pour contourner la validation DNS rebinding du SDK MCP v1.26+. Streamable HTTP n'a plus cette validation → middleware supprimé.
-
-3. **Notifications de progression** : Le mécanisme `ctx.info()` → `_received_notification` fonctionne toujours en Streamable HTTP (19 notifications reçues pendant l'ingestion test).
-
-4. **Version /health** : La version était hardcodée "1.1.0" dans le middleware. Corrigé pour lire le fichier VERSION. Le fichier n'était pas dans l'image Docker → ajouté `COPY VERSION .` dans le Dockerfile.
-
-5. **Healthcheck Docker** : Pointait vers `/sse` (qui n'existe plus) → changé en `/health`.
-
----
-
-## Historique récent
-
-### Intégration Live Memory — Architecture mémoire à deux niveaux (2026-02-21)
-(Voir memory bank précédente — toujours valide)
-
-### Ontologie general.yaml v1.1 — Réduction "Other" (2026-02-19)
-(Voir memory bank précédente — toujours valide)
+- Le nommage canonique (format strict par type) est la clé de la fusion cross-documents
+- Les mappings obligatoires dans `special_instructions` sont essentiels pour guider le LLM
+- L'ontologie code source utilise des limites plus élevées (160/240 vs 60/80) car le code est plus dense
+- Les types InfraComponent et SecurityBoundary couvrent l'architecture de déploiement manquante

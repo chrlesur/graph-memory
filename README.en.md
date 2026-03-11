@@ -14,12 +14,9 @@ Built by **[Cloud Temple](https://www.cloud-temple.com)**.
 
 ## 📋 Changelog
 
-> Full history: see [CHANGELOG.md](CHANGELOG.md)
+See **[CHANGELOG.md](CHANGELOG.md)** for the full version history (v0.5.0 → v1.5.0).
 
-### v1.4.0 — March 8, 2026 — 📋 MCP parameter descriptions + Compact health
-- 📋 **53 annotated parameters** — All parameters of 28 MCP tools use `Annotated[type, Field(description="...")]` (no more "No description" in Cline)
-- 🏥 **Simplified `/health` endpoint** — Compact format: `{"status": "ok", "service": "graph-memory", "version": "1.4.0", "transport": "streamable-http"}`
-- 🔄 **SSE → Streamable HTTP migration** — Single `/mcp` endpoint replacing `/sse` + `/messages`, `mcp>=1.8.0` required
+**Latest**: v1.5.0 (March 11, 2026) — New `software-development` ontology v1.2 (21 entity types, 23 relation types) for source code ingestion.
 
 ---
 
@@ -55,7 +52,7 @@ Question (natural language)
 ## ✨ Features
 
 - **28 MCP tools** exposed via Streamable HTTP (`/mcp` endpoint)
-- **Ontology-guided extraction** — 5 built-in ontologies (legal, cloud, managed-services, presales, general)
+- **Ontology-guided extraction** — 6 built-in ontologies (legal, cloud, managed-services, presales, general, software-development)
 - **Graph-Guided RAG** — graph identifies relevant docs, then Qdrant searches chunks *within* those docs
 - **Interactive web UI** — vis-network graph visualization, filtering, ASK panel with Markdown rendering
 - **Complete CLI** — Click (scriptable) + interactive shell with autocompletion
