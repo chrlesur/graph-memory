@@ -65,10 +65,12 @@
 	# Protège contre le DoS et l'abus par IP. Fenêtre glissante.
 	# Les requêtes excédentaires reçoivent HTTP 429 + Retry-After.
 	#
-	# Limites calibrées pour des agents IA sur Internet :
-	# - MCP : 60 appels/min (sessions + outils, burst d'un agent actif)
-	# - API REST : 30 requêtes/min (interface web)
-	# - Global : 200 requêtes/min (toutes routes confondues)
+	# Limites calibrées pour agents IA + trafic server-to-server :
+	# - MCP : 600 req/min (~200 appels MCP, chaque appel = 3 requêtes HTTP)
+	#   Nécessaire pour : graph_push de live-memory (delete + re-ingest par fichier)
+	#   et recette de tests (119 tests × 3 req = 357 requêtes en ~30s)
+	# - API REST : 60 requêtes/min (interface web)
+	# - Global : 1500 requêtes/min (toutes routes confondues)
 	# =========================================================================
 	rate_limit {
 		zone mcp {
@@ -76,7 +78,7 @@
 				path /mcp*
 			}
 			key {remote_host}
-			events 60
+			events 600
 			window 1m
 		}
 		zone api {
@@ -84,12 +86,12 @@
 				path /api/*
 			}
 			key {remote_host}
-			events 30
+			events 60
 			window 1m
 		}
 		zone global {
 			key {remote_host}
-			events 200
+			events 1500
 			window 1m
 		}
 	}
