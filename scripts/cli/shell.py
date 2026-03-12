@@ -69,7 +69,7 @@ SHELL_COMMANDS = [
     "entities", "entity", "relations", "ask", "query", "check", "cleanup",
     "create", "ingest", "ingestdir", "deldoc", "ontologies",
     "tokens", "token-create", "token-revoke", "token-grant",
-    "token-ungrant", "token-set", "token-promote",
+    "token-ungrant", "token-set", "token-promote", "token-set-email",
     "limit", "delete", "debug", "clear", "exit", "quit",
     "--json", "--include-documents", "--force", "--exclude", "--confirm",
     "backup", "backup-create", "backup-list", "backup-restore",
@@ -1024,6 +1024,21 @@ async def cmd_token_promote(client: MCPClient, state: dict, args: str):
         show_error(result.get("message", str(result)))
 
 
+async def cmd_token_set_email(client: MCPClient, state: dict, args: str):
+    """Modifie l'email d'un token. Usage: token-set-email <hash> <email>"""
+    if not args or len(args.split()) < 2:
+        show_warning("Usage: token-set-email <hash_prefix> <email>")
+        return
+    parts = args.split()
+    result = await client.call_tool("admin_update_token", {
+        "token_hash_prefix": parts[0], "set_email": parts[1],
+    })
+    if result.get("status") == "ok":
+        show_token_updated(result)
+    else:
+        show_error(result.get("message", str(result)))
+
+
 # =============================================================================
 # Handlers backup
 # =============================================================================
@@ -1235,6 +1250,7 @@ def run_shell(url: str, token: str):
         "token-ungrant <h> <m>":"Retirer l'accès d'un token à des mémoires",
         "token-set <h> [m]":    "Remplacer les mémoires d'un token (vide=toutes)",
         "token-promote <h> <p>":"Modifier les permissions (ex: token-promote abc admin,read,write)",
+        "token-set-email <h> <e>":"Modifier l'email (ex: token-set-email abc user@example.com)",
         # --- Backup ---
         "backup-create [id]":   "Créer un backup (mémoire courante ou spécifiée)",
         "backup-list [id]":     "Lister les backups disponibles",
@@ -1398,6 +1414,9 @@ def run_shell(url: str, token: str):
 
             elif command == "token-promote":
                 asyncio.run(cmd_token_promote(client, state, args))
+
+            elif command == "token-set-email":
+                asyncio.run(cmd_token_set_email(client, state, args))
 
             # --- Backup commands ---
             elif command == "backup-create":

@@ -987,6 +987,28 @@ def token_promote(ctx, hash_prefix, permissions):
     asyncio.run(_run())
 
 
+@token.command("set-email")
+@click.argument("hash_prefix")
+@click.argument("email")
+@click.pass_context
+def token_set_email(ctx, hash_prefix, email):
+    """📧 Modifier l'email d'un token."""
+    async def _run():
+        try:
+            client = MCPClient(ctx.obj["url"], ctx.obj["token"])
+            result = await client.call_tool("admin_update_token", {
+                "token_hash_prefix": hash_prefix,
+                "set_email": email,
+            })
+            if result.get("status") == "ok":
+                show_token_updated(result)
+            else:
+                show_error(result.get("message", str(result)))
+        except Exception as e:
+            show_error(str(e))
+    asyncio.run(_run())
+
+
 # =============================================================================
 # Backup / Restore
 # =============================================================================

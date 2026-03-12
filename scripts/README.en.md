@@ -106,6 +106,9 @@ python scripts/mcp_cli.py token set-memories <hash>  # empty = all memories
 python scripts/mcp_cli.py token promote <hash> admin,read,write  # Promote to admin
 python scripts/mcp_cli.py token promote <hash> read,write         # Demote to regular
 python scripts/mcp_cli.py token promote <hash> read                # Read-only
+
+# Update a token's email
+python scripts/mcp_cli.py token set-email <hash> user@example.com
 ```
 
 > **v1.6.0**: A token with `admin` permission has the same rights as the bootstrap key:
@@ -122,7 +125,7 @@ python scripts/mcp_cli.py shell
 
 Features: Tab completion, persistent history, `--json` on any read command.
 
-Key commands: `about`, `health`, `list`, `use <id>`, `create <id> <onto>`, `info`, `graph`, `docs`, `ingest <path>`, `ingestdir <path>`, `entities`, `entity <name>`, `relations`, `ask <question>`, `query <question>`, `check`, `cleanup`, `tokens`, `token-create`, `backup-create`, `backup-list`, `backup-restore`, `backup-download`, `backup-delete`.
+Key commands: `about`, `health`, `list`, `use <id>`, `create <id> <onto>`, `info`, `graph`, `docs`, `ingest <path>`, `ingestdir <path>`, `entities`, `entity <name>`, `relations`, `ask <question>`, `query <question>`, `check`, `cleanup`, `tokens`, `token-create`, `token-promote`, `token-set-email`, `backup-create`, `backup-list`, `backup-restore`, `backup-download`, `backup-delete`.
 
 ---
 

@@ -256,6 +256,9 @@ python scripts/mcp_cli.py token set-memories <hash>   # Accès à toutes
 python scripts/mcp_cli.py token promote <hash> admin,read,write  # Promouvoir en admin
 python scripts/mcp_cli.py token promote <hash> read,write         # Rétrograder en client normal
 python scripts/mcp_cli.py token promote <hash> read                # Passer en read-only
+
+# Modifier l'email d'un token
+python scripts/mcp_cli.py token set-email <hash> christophe.lesur@cloud-temple.com
 ```
 
 > **Note v1.6.0** : Un token avec la permission `admin` a les mêmes droits que la bootstrap key :
@@ -348,6 +351,7 @@ Fonctionnalités :
 | `token-ungrant <hash> <mem1> [mem2]`                      | Retirer des mémoires                             |
 | `token-set <hash> [mem1] [mem2]`                          | Remplacer les mémoires (vide = toutes)           |
 | `token-promote <hash> <perms>`                            | Modifier les permissions (admin, read, write)    |
+| `token-set-email <hash> <email>`                          | Modifier l'email d'un token                      |
 
 #### 💾 Backup / Restore
 
