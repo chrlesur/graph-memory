@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.6.1] - 2026-03-12
+
+### 🔧 Correctifs tokens + set_email + rate limits WAF
+
+#### Ajouté
+- **`set_email`** dans `admin_update_token` — Modifier l'email d'un token existant sans le recréer
+- **`update_token_email()`** dans `token_manager.py` — Méthode Neo4j pour mettre à jour l'email
+- **Validation des permissions** dans `admin_create_token` (serveur) et `token-create` (shell) — Rejette les valeurs invalides (empêche qu'un email finisse dans les permissions)
+
+#### Corrigé
+- **Rate limits WAF trop bas** pour le trafic server-to-server (`waf/Caddyfile`) — MCP 60→600, API 30→60, Global 200→1500 req/min. Nécessaire pour `graph_push` de Live Memory et la recette de tests.
+
+---
+
 ## [1.6.0] - 2026-03-11
 
 ### 🔒 Isolation multi-tenant — Audit et durcissement complet
