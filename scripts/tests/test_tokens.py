@@ -118,6 +118,31 @@ async def run(admin: MCPClient, client_rw: MCPClient, client_ro: MCPClient, **ct
     })
     assert_error(result, "admin_create_token refusé (read-only)", "admin")
 
+    # === 2.10 : set_email sur un token ===
+    rw_hash2 = tokens.get("client_rw", {}).get("hash_prefix", "")
+    if rw_hash2:
+        print("\n  📋 2.10 — admin_update_token : set_email")
+        result = await admin.call_tool("admin_update_token", {
+            "token_hash_prefix": rw_hash2,
+            "set_email": "test-updated@recette.local"
+        })
+        if assert_ok(result, "admin_update_token (set_email)"):
+            email = result.get("current_email", "")
+            if email == "test-updated@recette.local":
+                ok("  → Email mis à jour correctement")
+            else:
+                fail("  → Email incorrect", f"email={email}")
+    else:
+        skip("2.10 — set_email", "pas de hash_prefix")
+
+    # === 2.11 : Validation permissions invalides (serveur) ===
+    print("\n  📋 2.11 — admin_create_token avec permissions invalides (rejeté)")
+    result = await admin.call_tool("admin_create_token", {
+        "client_name": "test-invalid",
+        "permissions": ["superadmin"],
+    })
+    assert_error(result, "Permissions invalides rejetées", "invalide")
+
     # === Nettoyage : révoquer le token admin délégué ===
     if delegated_admin_hash:
         await admin.call_tool("admin_revoke_token", {"token_hash_prefix": delegated_admin_hash})
